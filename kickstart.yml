@@ -10,7 +10,7 @@
       default: "realm.de"
 
   vars:
-    proxmox_api_base_url: "{{ lookup('env', 'PROXMOX_API_BASE_URL') | default('https://pve01.de:8006', true) }}"
+    proxmox_api_base_url: "{{ lookup('env', 'PROXMOX_API_BASE_URL') | default('https://192.168.0.5:8006', true) }}"
     proxmox_username: "{{ lookup('env', 'PROXMOX_USERNAME') | default('root', true) }}"
     proxmox_realm_resolved: "{{ 'pam' if proxmox_realm == 'default' else proxmox_realm }}"
     proxmox_user: "{{ lookup('env', 'PROXMOX_USER') | default(proxmox_username ~ '@' ~ proxmox_realm_resolved, true) }}"
@@ -33,6 +33,21 @@
         that:
           - proxmox_realm in ['default', 'realm.de']
         fail_msg: "Invalid realm '{{ proxmox_realm }}'. Use 'default' or 'realm.de'."
+
+    - name: Choose type to provision (VM or LXC)
+      pause:
+        prompt: "Provision a VM or LXC container? (Enter 'vm' or 'lxc', default: vm): "
+      register: type_prompt
+
+    - name: Set selected type
+      set_fact:
+        provision_type: "{{ type_prompt.user_input | trim | lower | default('vm', true) }}"
+
+    - name: Validate provision type
+      assert:
+        that:
+          - provision_type in ['vm', 'lxc']
+        fail_msg: "Invalid type '{{ provision_type }}'. Use 'vm' or 'lxc'."
 
     - name: Choose Proxmox user
       pause:
@@ -217,6 +232,7 @@
               else '-vm-' ~ selected_vmid
           }}
 
+
     - name: Query storage options for selected node
       uri:
         url: "{{ proxmox_api_base_url }}/api2/json/nodes/{{ selected_node }}/storage"
@@ -224,6 +240,49 @@
         headers: "{{ proxmox_auth_headers }}"
         validate_certs: "{{ validate_certs }}"
       register: storage_resp
+
+    - name: Query available LXC templates if LXC selected
+      uri:
+        url: "{{ proxmox_api_base_url }}/api2/json/nodes/{{ selected_node }}/storage/{{ vm_storage_default }}/content"
+        method: GET
+        headers: "{{ proxmox_auth_headers }}"
+        validate_certs: "{{ validate_certs }}"
+      register: lxc_templates_resp
+      when: provision_type == 'lxc'
+
+    - name: Build LXC template options
+      set_fact:
+        available_lxc_templates: >-
+          {{
+            lxc_templates_resp.json.data
+            | selectattr('content', 'equalto', 'vztmpl')
+            | map(attribute='volid')
+            | list
+          }}
+      when: provision_type == 'lxc'
+
+    - name: Show LXC template options
+      debug:
+        msg: "Available LXC templates: {{ available_lxc_templates | join(', ') }}"
+      when: provision_type == 'lxc'
+
+    - name: Choose LXC template
+      pause:
+        prompt: "LXC template to use (required): "
+      register: lxc_template_prompt
+      when: provision_type == 'lxc'
+
+    - name: Set selected LXC template
+      set_fact:
+        selected_lxc_template: "{{ lxc_template_prompt.user_input | trim }}"
+      when: provision_type == 'lxc'
+
+    - name: Validate selected LXC template
+      assert:
+        that:
+          - selected_lxc_template in available_lxc_templates
+        fail_msg: "Invalid LXC template '{{ selected_lxc_template }}'. Choose one of: {{ available_lxc_templates | join(', ') }}"
+      when: provision_type == 'lxc'
 
     - name: Build storage options and default storage
       set_fact:
@@ -363,6 +422,7 @@
           - (selected_disk_gb | int) > 0
         fail_msg: "Cores, RAM, and disk size must all be positive numbers."
 
+
     - name: Create VM via Proxmox API
       uri:
         url: "{{ proxmox_api_base_url }}/api2/json/nodes/{{ selected_node }}/qemu"
@@ -386,7 +446,33 @@
       failed_when:
         - create_vm.status != 200
         - create_vm.json.data is not defined
-      when: not dry_run
+      when:
+        - not dry_run
+        - provision_type == 'vm'
+
+    - name: Create LXC container via Proxmox API
+      uri:
+        url: "{{ proxmox_api_base_url }}/api2/json/nodes/{{ selected_node }}/lxc"
+        method: POST
+        headers: "{{ proxmox_auth_headers }}"
+        body_format: form-urlencoded
+        body:
+          vmid: "{{ selected_vmid }}"
+          hostname: "{{ selected_vm_name }}"
+          cores: "{{ selected_cores | int }}"
+          memory: "{{ selected_memory | int }}"
+          ostemplate: "{{ selected_lxc_template }}"
+          rootfs: "{{ selected_storage }}:{{ selected_disk_gb | int }}"
+          net0: "name=eth0,bridge={{ selected_bridge }},ip=dhcp,ip6=auto,type=veth"
+        validate_certs: "{{ validate_certs }}"
+      register: create_lxc
+      changed_when: create_lxc.status == 200
+      failed_when:
+        - create_lxc.status != 200
+        - create_lxc.json.data is not defined
+      when:
+        - not dry_run
+        - provision_type == 'lxc'
 
     - name: Disable firewall for the created VM
       uri:
