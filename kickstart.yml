@@ -1,0 +1,467 @@
+---
+- name: Provision VM on Proxmox with interactive choices
+  hosts: localhost
+  gather_facts: false
+
+  vars_prompt:
+    - name: proxmox_realm
+      prompt: "Choose Proxmox realm (default: realm.de or default)"
+      private: false
+      default: "realm.de"
+
+  vars:
+    proxmox_api_base_url: "{{ lookup('env', 'PROXMOX_API_BASE_URL') | default('https://pve01.de:8006', true) }}"
+    proxmox_username: "{{ lookup('env', 'PROXMOX_USERNAME') | default('root', true) }}"
+    proxmox_realm_resolved: "{{ 'pam' if proxmox_realm == 'default' else proxmox_realm }}"
+    proxmox_user: "{{ lookup('env', 'PROXMOX_USER') | default(proxmox_username ~ '@' ~ proxmox_realm_resolved, true) }}"
+    proxmox_password: "{{ lookup('env', 'PROXMOX_PASSWORD') | default('', true) }}"
+    proxmox_token_id: "{{ lookup('env', 'PROXMOX_TOKEN') | default('', true) }}"
+    proxmox_token_secret: "{{ lookup('env', 'PROXMOX_SECRET') | default('', true) }}"
+
+    vm_cores_default: 4
+    vm_memory_default: 4096
+    vm_disk_gb_default: 32
+    vm_storage_default: "ceph-rbd"
+    vm_bridge_default: "vmbr-server"
+
+    validate_certs: false
+    dry_run: "{{ lookup('env', 'DRY_RUN') | default(false, true) | bool }}"
+
+  tasks:
+    - name: Validate realm selection
+      assert:
+        that:
+          - proxmox_realm in ['default', 'realm.de']
+        fail_msg: "Invalid realm '{{ proxmox_realm }}'. Use 'default' or 'realm.de'."
+
+    - name: Choose Proxmox user
+      pause:
+        prompt: "Proxmox user (username or user@realm, default: {{ proxmox_user }}): "
+      register: proxmox_user_prompt
+
+    - name: Build selected Proxmox user input
+      set_fact:
+        proxmox_user_selected: "{{ proxmox_user_prompt.user_input | default('') | trim | default(proxmox_user, true) }}"
+
+    - name: Normalize selected Proxmox user
+      set_fact:
+        proxmox_user: >-
+          {{
+            proxmox_user_selected
+            if '@' in proxmox_user_selected
+            else proxmox_user_selected ~ '@' ~ proxmox_realm_resolved
+          }}
+
+    - name: Prompt for Proxmox password when no auth is provided
+      pause:
+        prompt: "Proxmox password for {{ proxmox_user }} (leave empty to use API token): "
+        echo: false
+      register: proxmox_password_prompt
+      when:
+        - proxmox_password | trim == ''
+        - proxmox_token_id | trim == ''
+        - proxmox_token_secret | trim == ''
+
+    - name: Set prompted Proxmox password
+      set_fact:
+        proxmox_password: "{{ proxmox_password_prompt.user_input | trim }}"
+      when:
+        - proxmox_password_prompt is defined
+        - proxmox_password_prompt.user_input | trim != ''
+
+    - name: Prompt for Proxmox API token ID when password is not used
+      pause:
+        prompt: "Proxmox API token ID (example: my-token): "
+      register: proxmox_token_id_prompt
+      when:
+        - proxmox_password | trim == ''
+        - proxmox_token_id | trim == ''
+
+    - name: Set prompted Proxmox token ID
+      set_fact:
+        proxmox_token_id: "{{ proxmox_token_id_prompt.user_input | trim }}"
+      when:
+        - proxmox_password | trim == ''
+        - proxmox_token_id_prompt is defined
+        - proxmox_token_id_prompt.user_input | default('') | trim != ''
+
+    - name: Prompt for Proxmox API token secret when password is not used
+      pause:
+        prompt: "Proxmox API token secret: "
+        echo: false
+      register: proxmox_token_secret_prompt
+      when:
+        - proxmox_password | trim == ''
+        - proxmox_token_secret | trim == ''
+
+    - name: Set prompted Proxmox token secret
+      set_fact:
+        proxmox_token_secret: "{{ proxmox_token_secret_prompt.user_input | trim }}"
+      when:
+        - proxmox_password | trim == ''
+        - proxmox_token_secret_prompt is defined
+        - proxmox_token_secret_prompt.user_input | default('') | trim != ''
+
+    - name: Build Proxmox auth header for API token flow
+      set_fact:
+        proxmox_auth_headers:
+          Authorization: "PVEAPIToken={{ proxmox_user }}!{{ proxmox_token_id }}={{ proxmox_token_secret }}"
+      when:
+        - proxmox_password | trim == ''
+        - proxmox_token_id | trim != ''
+        - proxmox_token_secret | trim != ''
+
+    - name: Login to Proxmox API for ticket/cookie flow
+      uri:
+        url: "{{ proxmox_api_base_url }}/api2/json/access/ticket"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          username: "{{ proxmox_user }}"
+          password: "{{ proxmox_password }}"
+        validate_certs: "{{ validate_certs }}"
+      register: proxmox_login
+      when: proxmox_password | trim != ''
+
+    - name: Build Proxmox auth header for ticket/cookie flow
+      set_fact:
+        proxmox_auth_headers:
+          Cookie: "PVEAuthCookie={{ proxmox_login.json.data.ticket }}"
+          CSRFPreventionToken: "{{ proxmox_login.json.data.CSRFPreventionToken }}"
+      when: proxmox_password | trim != ''
+
+    - name: Validate auth configuration
+      assert:
+        that:
+          - proxmox_auth_headers is defined
+        fail_msg: "Set PROXMOX_PASSWORD or PROXMOX_TOKEN/PROXMOX_SECRET for API authentication."
+
+    - name: Show execution mode
+      debug:
+        msg: "Dry-run mode: {{ dry_run }} (set DRY_RUN=true to skip VM creation)"
+
+    - name: Verify authenticated access to Proxmox API
+      uri:
+        url: "{{ proxmox_api_base_url }}/api2/json/version"
+        method: GET
+        headers: "{{ proxmox_auth_headers }}"
+        validate_certs: "{{ validate_certs }}"
+      register: proxmox_verify
+      failed_when:
+        - proxmox_verify.status != 200
+        - proxmox_verify.json.data is not defined
+
+    - name: Query available Proxmox nodes
+      uri:
+        url: "{{ proxmox_api_base_url }}/api2/json/nodes"
+        method: GET
+        headers: "{{ proxmox_auth_headers }}"
+        validate_certs: "{{ validate_certs }}"
+      register: nodes_resp
+
+    - name: Build node options and default node
+      set_fact:
+        available_nodes: "{{ nodes_resp.json.data | map(attribute='node') | list }}"
+        default_node: >-
+          {{
+            (nodes_resp.json.data
+             | selectattr('status', 'equalto', 'online')
+             | map(attribute='node')
+             | list
+             | first)
+            | default(nodes_resp.json.data | map(attribute='node') | list | first, true)
+          }}
+
+    - name: Show node options
+      debug:
+        msg: "Available nodes: {{ available_nodes | join(', ') }}"
+
+    - name: Choose node to provision on
+      pause:
+        prompt: "Node to provision (default: {{ default_node }}): "
+      register: node_prompt
+
+    - name: Set selected node
+      set_fact:
+        selected_node: "{{ node_prompt.user_input | trim | default(default_node, true) }}"
+
+    - name: Validate selected node
+      assert:
+        that:
+          - selected_node in available_nodes
+        fail_msg: "Invalid node '{{ selected_node }}'. Choose one of: {{ available_nodes | join(', ') }}"
+
+    - name: Query next available VM ID
+      uri:
+        url: "{{ proxmox_api_base_url }}/api2/json/cluster/nextid"
+        method: GET
+        headers: "{{ proxmox_auth_headers }}"
+        validate_certs: "{{ validate_certs }}"
+      register: nextid_resp
+
+    - name: Set auto-selected VM ID
+      set_fact:
+        selected_vmid: "{{ nextid_resp.json.data | string }}"
+
+    - name: Choose VM name
+      pause:
+        prompt: "VM name (default: vm-{{ selected_vmid }}): "
+      register: name_prompt
+
+    - name: Set selected VM name
+      set_fact:
+        selected_vm_name: >-
+          {{
+            name_prompt.user_input | trim
+              if (name_prompt.user_input | trim) != ''
+              else '-vm-' ~ selected_vmid
+          }}
+
+    - name: Query storage options for selected node
+      uri:
+        url: "{{ proxmox_api_base_url }}/api2/json/nodes/{{ selected_node }}/storage"
+        method: GET
+        headers: "{{ proxmox_auth_headers }}"
+        validate_certs: "{{ validate_certs }}"
+      register: storage_resp
+
+    - name: Build storage options and default storage
+      set_fact:
+        available_storages: >-
+          {{
+            storage_resp.json.data
+            | selectattr('enabled', 'equalto', 1)
+            | selectattr('content', 'search', 'images')
+            | map(attribute='storage')
+            | list
+          }}
+        default_storage: >-
+          {{
+            vm_storage_default
+            if vm_storage_default in (
+              storage_resp.json.data
+              | selectattr('enabled', 'equalto', 1)
+              | selectattr('content', 'search', 'images')
+              | map(attribute='storage')
+              | list
+            )
+            else (
+              storage_resp.json.data
+              | selectattr('enabled', 'equalto', 1)
+              | selectattr('content', 'search', 'images')
+              | map(attribute='storage')
+              | list
+              | first
+            )
+          }}
+
+    - name: Show storage options
+      debug:
+        msg: "Available VM storages: {{ available_storages | join(', ') }}"
+
+    - name: Choose storage
+      pause:
+        prompt: "Storage to use (default: {{ default_storage }}): "
+      register: storage_prompt
+
+    - name: Set selected storage
+      set_fact:
+        selected_storage: "{{ storage_prompt.user_input | trim | default(default_storage, true) }}"
+
+    - name: Validate selected storage
+      assert:
+        that:
+          - selected_storage in available_storages
+        fail_msg: "Invalid storage '{{ selected_storage }}'. Choose one of: {{ available_storages | join(', ') }}"
+
+    - name: Query network options for selected node
+      uri:
+        url: "{{ proxmox_api_base_url }}/api2/json/nodes/{{ selected_node }}/network"
+        method: GET
+        headers: "{{ proxmox_auth_headers }}"
+        validate_certs: "{{ validate_certs }}"
+      register: network_resp
+
+    - name: Build network bridge options and default bridge
+      set_fact:
+        available_bridges: >-
+          {{
+            network_resp.json.data
+            | selectattr('type', 'equalto', 'bridge')
+            | map(attribute='iface')
+            | list
+          }}
+        default_bridge: >-
+          {{
+            'vmbr-server'
+            if 'vmbr-server' in (
+              network_resp.json.data
+              | selectattr('type', 'equalto', 'bridge')
+              | map(attribute='iface')
+              | list
+            )
+            else (
+              network_resp.json.data
+              | selectattr('type', 'equalto', 'bridge')
+              | map(attribute='iface')
+              | list
+              | first
+            )
+          }}
+
+    - name: Show network options
+      debug:
+        msg: "Available network bridges: {{ available_bridges | join(', ') }}"
+
+    - name: Choose network bridge
+      pause:
+        prompt: "Bridge to use (default: {{ default_bridge }}): "
+      register: bridge_prompt
+
+    - name: Set selected bridge
+      set_fact:
+        selected_bridge: "{{ bridge_prompt.user_input | trim | default(default_bridge, true) }}"
+
+    - name: Validate selected bridge
+      assert:
+        that:
+          - selected_bridge in available_bridges
+        fail_msg: "Invalid bridge '{{ selected_bridge }}'. Choose one of: {{ available_bridges | join(', ') }}"
+
+    - name: Choose CPU cores
+      pause:
+        prompt: "CPU cores (default: {{ vm_cores_default }}): "
+      register: cores_prompt
+
+    - name: Set selected CPU cores
+      set_fact:
+        selected_cores: "{{ cores_prompt.user_input | trim | default(vm_cores_default | string, true) }}"
+
+    - name: Choose RAM in MB
+      pause:
+        prompt: "RAM in MB (default: {{ vm_memory_default }}): "
+      register: memory_prompt
+
+    - name: Set selected RAM
+      set_fact:
+        selected_memory: "{{ memory_prompt.user_input | trim | default(vm_memory_default | string, true) }}"
+
+    - name: Choose disk size in GB
+      pause:
+        prompt: "Disk size in GB (default: {{ vm_disk_gb_default }}): "
+      register: disk_prompt
+
+    - name: Set selected disk size
+      set_fact:
+        selected_disk_gb: "{{ disk_prompt.user_input | trim | default(vm_disk_gb_default | string, true) }}"
+
+    - name: Validate numeric VM settings
+      assert:
+        that:
+          - (selected_cores | int) > 0
+          - (selected_memory | int) > 0
+          - (selected_disk_gb | int) > 0
+        fail_msg: "Cores, RAM, and disk size must all be positive numbers."
+
+    - name: Create VM via Proxmox API
+      uri:
+        url: "{{ proxmox_api_base_url }}/api2/json/nodes/{{ selected_node }}/qemu"
+        method: POST
+        headers: "{{ proxmox_auth_headers }}"
+        body_format: form-urlencoded
+        body:
+          vmid: "{{ selected_vmid }}"
+          name: "{{ selected_vm_name }}"
+          cores: "{{ selected_cores | int }}"
+          memory: "{{ selected_memory | int }}"
+          cpu: host
+          ostype: l26
+          scsihw: virtio-scsi-pci
+          scsi0: "{{ selected_storage }}:{{ selected_disk_gb | int }}"
+          net0: "virtio,bridge={{ selected_bridge }}"
+          agent: 1
+        validate_certs: "{{ validate_certs }}"
+      register: create_vm
+      changed_when: create_vm.status == 200
+      failed_when:
+        - create_vm.status != 200
+        - create_vm.json.data is not defined
+      when: not dry_run
+
+    - name: Disable firewall for the created VM
+      uri:
+        url: "{{ proxmox_api_base_url }}/api2/json/nodes/{{ selected_node }}/qemu/{{ selected_vmid }}/firewall/options"
+        method: PUT
+        headers: "{{ proxmox_auth_headers }}"
+        body_format: form-urlencoded
+        body:
+          enable: 0
+        validate_certs: "{{ validate_certs }}"
+      register: disable_fw
+      changed_when: disable_fw.status == 200
+      failed_when:
+        - disable_fw.status != 200
+      when: not dry_run
+
+    - name: Wait briefly before reading VM config
+      pause:
+        seconds: 3
+      when: not dry_run
+
+    - name: Read VM configuration from Proxmox API
+      uri:
+        url: "{{ proxmox_api_base_url }}/api2/json/nodes/{{ selected_node }}/qemu/{{ selected_vmid }}/config"
+        method: GET
+        headers: "{{ proxmox_auth_headers }}"
+        validate_certs: "{{ validate_certs }}"
+      register: vm_config
+      when: not dry_run
+
+    - name: Collect all net interfaces from VM config
+      set_fact:
+        vm_net_items: >-
+          {{
+            vm_config.json.data
+            | dict2items
+            | selectattr('key', 'match', '^net[0-9]+$')
+            | list
+          }}
+      when: not dry_run
+
+    - name: Parse MAC and model from each net interface
+      set_fact:
+        vm_network_details: "{{ vm_network_details | default([]) + [ {
+          'interface': item.key,
+          'raw': item.value,
+          'model': (item.value | regex_search('^([^=,]+)', '\\1')),
+          'mac': (item.value | regex_search('=([0-9A-Fa-f:]{17})', '\\1')),
+          'bridge': (item.value | regex_search('bridge=([^,]+)', '\\1'))
+        } ] }}"
+      loop: "{{ vm_net_items }}"
+      when: not dry_run
+
+    - name: Print created VM summary
+      debug:
+        msg:
+          vmid: "{{ selected_vmid }}"
+          name: "{{ selected_vm_name }}"
+          node: "{{ selected_node }}"
+          cores: "{{ selected_cores | int }}"
+          memory_mb: "{{ selected_memory | int }}"
+          disk: "{{ selected_storage }}:{{ selected_disk_gb | int }}G"
+          network: "{{ vm_network_details | default([]) }}"
+      when: not dry_run
+
+    - name: Print dry-run VM plan
+      debug:
+        msg:
+          dry_run: true
+          planned_action: "VM creation skipped"
+          vmid: "{{ selected_vmid }}"
+          name: "{{ selected_vm_name }}"
+          node: "{{ selected_node }}"
+          cores: "{{ selected_cores | int }}"
+          memory_mb: "{{ selected_memory | int }}"
+          disk: "{{ selected_storage }}:{{ selected_disk_gb | int }}G"
+          network_bridge: "{{ selected_bridge }}"
+      when: dry_run
