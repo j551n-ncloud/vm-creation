@@ -13,6 +13,11 @@ ansible/vars/tf_outputs.json
 # Vault init output (contains unseal keys!)
 **/vault-init.json
 
+# Service secrets (written by Ansible at deploy time)
+services/**/secrets/role_id
+services/**/secrets/secret_id
+services/**/.env
+
 # SSH keys
 *.pem
 *.key
