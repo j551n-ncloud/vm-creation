@@ -14,20 +14,19 @@ output "runner_lxc_ips" {
   }
 }
 
-output "gitlab_vm_ip" {
-  description = "IP address of GitLab CE VM"
-  value       = var.gitlab_vm.ip
-}
-
 output "vault_ip" {
   description = "Vault LXC IP"
   value       = try(var.services["vault"].ip, "not configured")
 }
 
+output "gitlab_url" {
+  description = "Existing GitLab instance URL"
+  value       = var.gitlab_url
+}
+
 output "ansible_inventory" {
   description = "Ansible inventory snippet for generated hosts"
   value = templatefile("${path.module}/inventory.tpl", {
-    gitlab_ip   = var.gitlab_vm.ip
     vault_ip    = try(var.services["vault"].ip, "")
     services    = var.services
     runner_lxcs = var.runner_lxcs

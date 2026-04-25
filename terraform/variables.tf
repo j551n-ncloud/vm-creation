@@ -79,36 +79,9 @@ variable "services" {
   }
 }
 
-variable "gitlab_vm" {
-  description = "GitLab CE VM configuration"
-  type = object({
-    vmid    = number
-    node    = string
-    ip      = string
-    memory  = number
-    cores   = number
-    disk_gb = number
-  })
-  default = {
-    vmid    = 100
-    node    = "pve01"
-    ip      = "192.168.1.100"
-    memory  = 4096
-    cores   = 2
-    disk_gb = 50
-  }
-}
-
-variable "gitlab_iso" {
-  description = "ISO for GitLab VM (Ubuntu 22.04)"
+variable "gitlab_url" {
+  description = "URL of the existing GitLab instance (e.g. https://gitlab.example.com)"
   type        = string
-  default     = "local:iso/ubuntu-22.04-live-server-amd64.iso"
-}
-
-variable "vm_storage" {
-  description = "Storage pool for VMs"
-  type        = string
-  default     = "local-lvm"
 }
 
 variable "runner_lxcs" {

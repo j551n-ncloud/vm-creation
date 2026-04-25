@@ -23,12 +23,20 @@
       confirm: true
 
     - name: gitlab_url
-      prompt: "GitLab URL (e.g. https://gitlab.example.com)"
+      prompt: "Existing GitLab URL (e.g. https://gitlab.example.com)"
       private: false
+
+    - name: gitlab_api_token
+      prompt: "GitLab API token (for pushing configs + updating descriptions)"
+      private: true
 
     - name: gitlab_runner_token
       prompt: "GitLab Runner registration token"
       private: true
+
+    - name: gitlab_project_id
+      prompt: "GitLab project ID (for health-check description updates)"
+      private: false
 
     - name: vault_token
       prompt: "Vault root token (leave empty to auto-generate)"
@@ -46,11 +54,13 @@
         dest: "{{ playbook_dir }}/../terraform/terraform.tfvars"
         mode: "0600"
 
-    - name: Write Ansible vault_vars
+    - name: Write secrets vars file
       ansible.builtin.copy:
         content: |
           gitlab_url: "{{ gitlab_url }}"
+          gitlab_api_token: "{{ gitlab_api_token }}"
           gitlab_runner_token: "{{ gitlab_runner_token }}"
+          gitlab_project_id: "{{ gitlab_project_id }}"
           vault_root_token: "{{ vault_token }}"
           lxc_password: "{{ lxc_password }}"
         dest: "{{ playbook_dir }}/vars/secrets.yml"
@@ -72,31 +82,78 @@
       ansible.builtin.pause:
         prompt: "Review the plan above. Press ENTER to apply or Ctrl+C to abort"
 
-    - name: Apply Terraform
+    - name: Apply Terraform (create LXCs)
       ansible.builtin.command:
         cmd: terraform apply tfplan
         chdir: "{{ playbook_dir }}/../terraform"
       changed_when: true
 
-    - name: Export Terraform outputs to inventory
+    - name: Export Terraform outputs to vars
       ansible.builtin.shell:
         cmd: terraform output -json > ../ansible/vars/tf_outputs.json
         chdir: "{{ playbook_dir }}/../terraform"
       changed_when: true
 
-    - name: Wait for LXCs to become reachable
+    - name: Wait for LXCs to boot
       ansible.builtin.pause:
         seconds: 30
-        prompt: "Waiting 30s for containers to boot..."
+        prompt: "Waiting 30s for containers to come up..."
 
+# Step 2: Install Docker on service LXCs
 - name: Install Docker on service LXCs
   import_playbook: docker-install.yml
 
-- name: Install GitLab Runners
+# Step 3: Register GitLab Runners to existing GitLab
+- name: Install and register GitLab Runners
   import_playbook: runner-install.yml
 
-- name: Setup Vault
+# Step 4: Setup Vault
+- name: Initialize Vault
   import_playbook: vault-setup.yml
 
+# Step 5: Deploy health checks and push initial configs to GitLab
 - name: Setup health checks
   import_playbook: health-check.yml
+
+- name: Push initial configs to remote GitLab
+  hosts: localhost
+  gather_facts: false
+
+  vars_files:
+    - vars/secrets.yml
+
+  tasks:
+    - name: Check if git remote already set
+      ansible.builtin.command:
+        cmd: git remote get-url origin
+        chdir: "{{ playbook_dir }}/.."
+      register: git_remote
+      changed_when: false
+      failed_when: false
+
+    - name: Set GitLab remote if not present
+      ansible.builtin.command:
+        cmd: git remote add origin "{{ gitlab_url }}/gitops/proxmox-stack.git"
+        chdir: "{{ playbook_dir }}/.."
+      when: git_remote.rc != 0
+      changed_when: true
+
+    - name: Push configs to GitLab main branch
+      ansible.builtin.shell:
+        cmd: |
+          git config user.email "ansible@gitops"
+          git config user.name "Ansible Init"
+          git add -A
+          git diff --cached --quiet || git commit -m "chore: initial gitops stack config"
+          git push \
+            "https://oauth2:{{ gitlab_api_token }}@{{ gitlab_url | urlsplit('hostname') }}/gitops/proxmox-stack.git" \
+            HEAD:main
+        chdir: "{{ playbook_dir }}/.."
+      changed_when: true
+
+    - name: Confirm stack is ready
+      ansible.builtin.debug:
+        msg: >
+          Stack initialized.
+          GitLab: {{ gitlab_url }}
+          Runners registered, Vault running, health checks active.

@@ -3,21 +3,15 @@ proxmox_api_token       = "terraform@pam!mytoken=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxx
 proxmox_tls_insecure    = true
 proxmox_ssh_private_key = "~/.ssh/id_rsa"
 
-proxmox_nodes = ["pve01", "pve02"]
-lxc_password  = "changeme"
-lxc_template  = "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
-lxc_storage   = "local-lvm"
+proxmox_nodes  = ["pve01", "pve02"]
+lxc_password   = "changeme"
+lxc_template   = "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
+lxc_storage    = "local-lvm"
 network_bridge = "vmbr0"
-ip_gateway    = "192.168.1.1"
+ip_gateway     = "192.168.1.1"
 
-gitlab_vm = {
-  vmid    = 100
-  node    = "pve01"
-  ip      = "192.168.1.100"
-  memory  = 4096
-  cores   = 2
-  disk_gb = 50
-}
+# Existing GitLab instance — no VM will be created
+gitlab_url = "https://gitlab.example.com"
 
 services = {
   "vault" = {

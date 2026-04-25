@@ -1,6 +1,3 @@
-[gitlab]
-gitlab-ce ansible_host=${gitlab_ip}
-
 [vault]
 vault ansible_host=${vault_ip}
 
