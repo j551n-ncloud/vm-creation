@@ -21,7 +21,7 @@ deploy:stage:
   stage: deploy-stage
   image: alpine:latest
   before_script:
-    - apk add --no-cache openssh-client rsync ansible
+    - apk add --no-cache openssh-client curl
     - eval $(ssh-agent -s)
     - echo "$STAGING_SSH_KEY" | tr -d '\r' | ssh-add -
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -32,7 +32,12 @@ deploy:stage:
         docker compose -f /opt/$CI_PROJECT_NAME/docker-compose.yml pull &&
         docker compose -f /opt/$CI_PROJECT_NAME/docker-compose.yml up -d --remove-orphans
       "
-    - /scripts/health-check.sh --host $STAGING_LXC_IP --project $CI_PROJECT_ID
+    - |
+      GITLAB_URL="$CI_SERVER_URL" \
+      GITLAB_TOKEN="$GITLAB_API_TOKEN" \
+      GITLAB_PROJECT_ID="$CI_PROJECT_ID" \
+      DEPLOY_ENV="staging" \
+      ./scripts/update-description.sh "$CI_COMMIT_SHORT_SHA" "$CI_PROJECT_NAME"
   environment:
     name: staging
     url: "http://$STAGING_LXC_IP"
