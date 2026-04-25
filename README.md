@@ -1,59 +1,189 @@
-# Proxmox VM Kickstart Playbook
+# GitOps Stack — Proxmox + GitLab + Vault
 
-This project provides an interactive Ansible playbook to provision virtual machines on a Proxmox cluster, with support for both real and dry-run (no-create) modes.
+Fully automated GitOps stack on a Proxmox cluster. Terraform provisions LXC containers, Ansible configures them, GitLab CI/CD handles deployments, and Vault manages secrets.
+
+> **Prerequisite:** A running GitLab instance is required. No GitLab VM is created by this stack.
+
+## Architecture
+
+```
+Proxmox Cluster
+├── LXC per Service   (Docker + Vault Agent + docker-compose)
+├── LXC per Node      (GitLab Runner)
+└── LXC Vault         (HashiCorp Vault, KV v2)
+
+GitLab (existing instance)
+└── services/         (submodule repo)
+    └── vaultwarden/  (example service)
+        ├── main      → Validation (lint, syntax)
+        ├── stage     → Build + Staging deploy
+        └── release   → Build + Production deploy
+```
+
+## Repository Structure
+
+```
+.
+├── terraform/                  # Proxmox LXC provisioning (bpg/proxmox)
+│   ├── main.tf
+│   ├── lxc.tf                  # Service + Runner LXCs (nesting=true, keyctl=true)
+│   ├── variables.tf
+│   ├── outputs.tf
+│   └── terraform.tfvars.example
+├── ansible/
+│   ├── init.yml                # Interactive init — runs everything end-to-end
+│   ├── add-service.yml         # Add a new service (LXC + GitLab submodules)
+│   ├── docker-install.yml
+│   ├── runner-install.yml
+│   ├── vault-setup.yml
+│   ├── health-check.yml
+│   ├── inventory/
+│   │   └── proxmox_dynamic.yml # Dynamic inventory via Proxmox API
+│   └── roles/
+│       ├── docker_install/
+│       ├── runner_install/
+│       ├── vault_setup/
+│       ├── lxc_create/
+│       ├── proxmox_connect/
+│       └── service_deploy/     # Deploy docker-compose + Vault AppRole
+├── gitlab/
+│   ├── .gitlab-ci.yml
+│   ├── templates/
+│   │   ├── validation.yml      # YAML, Dockerfile, Ansible, Terraform lint
+│   │   ├── stage.yml           # Docker build + staging deploy + description update
+│   │   └── release.yml         # Docker build + production deploy + rsync + description update
+│   └── submodule-template/     # Copy this when creating a new service repo
+│       ├── main/
+│       ├── stage/
+│       └── release/
+├── services/                   # Git submodule (separate repo: ../services.git)
+│   └── vaultwarden/
+│       ├── docker-compose.yml
+│       ├── vault-agent.hcl
+│       ├── .env.example
+│       └── secrets/
+│           └── env.ctmpl
+└── scripts/
+    ├── deploy.sh               # SSH deploy with rsync backup option
+    ├── health-check.sh         # Docker health → updates GitLab description
+    └── update-description.sh  # Deploy info → updates GitLab description
+```
+
+## Quick Start
+
+### 1. Clone with submodules
+
+```bash
+git clone --recurse-submodules <repo-url>
+```
+
+### 2. Configure Terraform
+
+```bash
+cp terraform/terraform.tfvars.example terraform/terraform.tfvars
+# Edit terraform/terraform.tfvars with your Proxmox API token, node IPs, GitLab URL
+```
+
+### 3. Run the init playbook
+
+```bash
+ansible-playbook ansible/init.yml
+```
+
+The playbook prompts for:
+- Proxmox API URL + token
+- Proxmox nodes to use
+- LXC root password
+- GitLab URL + API token + runner registration token + project ID
+- Vault root token (auto-generated if left empty)
+
+It then runs in order: Terraform apply → Docker install → Runner register → Vault init → Health check setup → Push configs to GitLab.
+
+### 4. Add a new service
+
+```bash
+ansible-playbook ansible/add-service.yml \
+  -e service_name=my-service \
+  -e service_vmid=202 \
+  -e service_ip=192.168.1.202 \
+  -e service_node=pve01 \
+  -e service_port=8080
+```
+
+This creates the LXC, installs Docker, sets up Vault AppRole, creates the three GitLab submodule repos (`main`, `stage`, `release`), and deploys docker-compose.
+
+## Deploy Flow
+
+```
+Push to <service>/main    →  Validation (lint yaml/dockerfile/ansible/terraform)
+Push to <service>/stage   →  Docker build → push to registry
+                          →  SSH into LXC → docker compose pull + up
+                          →  GitLab description: 🚀 STAGING | abc1234 | deployed 2026-04-25 14:32
+Push tag on <service>/release →  Docker build → push to registry
+                              →  SSH into LXC → docker compose pull + up
+                              →  rsync ./config/ to LXC (with timestamped backup)
+                              →  GitLab description: 🚀 PRODUCTION | v1.2.3 | deployed 2026-04-25
+```
+
+## GitLab Project Description Format
+
+Each service repo shows two lines, updated independently:
+
+```
+🚀 PRODUCTION | v1.2.3 | deployed 2026-04-25 14:10 | vaultwarden
+✅ HEALTHY | LXC:201 pve01 | 2026-04-25 14:37
+```
+
+- **Line 1** — set by `update-description.sh` on every deploy (stage or production)
+- **Line 2** — set by `health-check.sh` cronjob every 5 minutes on the LXC
+
+Neither script overwrites the other's line.
+
+## Secrets (Vault)
+
+Vault runs in its own LXC. Each service authenticates via AppRole (created automatically by `add-service.yml`):
+
+```
+secret/vaultwarden/config
+  → admin_token
+  → database_url
+```
+
+The Vault Agent sidecar container renders secrets into `/run/secrets/app.env` at runtime. The app container reads that file — no secrets ever stored in the image or the repo.
+
+## Adding a Service to `services/`
+
+1. Create a new folder inside `services/` (in the submodule repo)
+2. Copy `services/vaultwarden/` as a starting point
+3. Update `docker-compose.yml`, `vault-agent.hcl`, and `secrets/env.ctmpl`
+4. Run `ansible-playbook ansible/add-service.yml -e service_name=<name> ...`
+
+## scripts/deploy.sh Options
+
+```
+--host          Target LXC IP (required)
+--service       Service name (required)
+--tag           Docker image tag (default: latest)
+--ssh-key       Path to SSH private key
+--rsync-src     Local config path to sync
+--rsync-dest    Remote destination path
+--backup-dest   Remote path for timestamped rsync backups
+--timeout       rsync network timeout in seconds (default: 30)
+--bwlimit       rsync bandwidth limit in KB/s, 0=unlimited
+```
 
 ## Requirements
-- Ansible (tested with ansible-core 2.20+)
-- Access to a Proxmox API endpoint
-- Python 3.x
 
-## Usage
+| Tool | Version |
+|---|---|
+| Terraform | >= 1.5 |
+| bpg/proxmox provider | ~> 0.66 |
+| Ansible | >= 2.15 |
+| community.general | latest |
+| community.docker | latest |
+| Docker | 24+ |
+| Vault | 1.17+ |
 
-### 1. Inventory
-A sample inventory file is provided:
-
-```
-[local]
-localhost ansible_connection=local
-```
-
-### 2. Run the Playbook
-
-#### Dry-run mode (no VM is created)
-```
-DRY_RUN=true ansible-playbook -i inventory.ini kickstart.yml
-```
-
-#### Real mode (creates a VM)
-```
-ansible-playbook -i inventory.ini kickstart.yml
-```
-
-### 3. Interactive Prompts
-- You will be prompted for:
-  - Proxmox realm (default or realm.de)
-  - Proxmox user (enter username or username@realm)
-  - Proxmox password or API token (prompted as needed)
-  - Node, storage, bridge, VM name, CPU, RAM, disk size
-
-### 4. Authentication
-- You can use either a password or an API token for authentication.
-- If you do not set environment variables, the playbook will prompt you interactively.
-- To use environment variables, set:
-  - `PROXMOX_API_BASE_URL`, `PROXMOX_USER`, `PROXMOX_PASSWORD` (or `PROXMOX_TOKEN` and `PROXMOX_SECRET`)
-
-### 5. Notes
-- The playbook is safe to run in dry-run mode for validation and planning.
-- In real mode, a VM will be created on the selected Proxmox node.
-- All choices are interactive unless you pre-set variables via environment or extra-vars.
-
-## Troubleshooting
-- If you see connection or authentication errors, check your Proxmox credentials and API endpoint.
-- For local-only testing, always use dry-run mode.
-
-## License
-MIT
- 
 ## Contributors
 
 - Johannes Nguyen
