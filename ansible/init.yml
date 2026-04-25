@@ -1,0 +1,102 @@
+---
+- name: Interactive GitOps Stack Initialization
+  hosts: localhost
+  gather_facts: false
+
+  vars_prompt:
+    - name: proxmox_api_url
+      prompt: "Proxmox API URL (e.g. https://pve01:8006)"
+      private: false
+
+    - name: proxmox_api_token
+      prompt: "Proxmox API Token (user@realm!tokenid=secret)"
+      private: true
+
+    - name: proxmox_nodes_input
+      prompt: "Proxmox nodes to use (comma-separated, e.g. pve01,pve02)"
+      private: false
+      default: "pve01"
+
+    - name: lxc_password
+      prompt: "LXC root password"
+      private: true
+      confirm: true
+
+    - name: gitlab_url
+      prompt: "GitLab URL (e.g. https://gitlab.example.com)"
+      private: false
+
+    - name: gitlab_runner_token
+      prompt: "GitLab Runner registration token"
+      private: true
+
+    - name: vault_token
+      prompt: "Vault root token (leave empty to auto-generate)"
+      private: true
+      default: ""
+
+  tasks:
+    - name: Parse node list
+      ansible.builtin.set_fact:
+        proxmox_nodes: "{{ proxmox_nodes_input.split(',') | map('trim') | list }}"
+
+    - name: Write terraform.tfvars from input
+      ansible.builtin.template:
+        src: templates/terraform.tfvars.j2
+        dest: "{{ playbook_dir }}/../terraform/terraform.tfvars"
+        mode: "0600"
+
+    - name: Write Ansible vault_vars
+      ansible.builtin.copy:
+        content: |
+          gitlab_url: "{{ gitlab_url }}"
+          gitlab_runner_token: "{{ gitlab_runner_token }}"
+          vault_root_token: "{{ vault_token }}"
+          lxc_password: "{{ lxc_password }}"
+        dest: "{{ playbook_dir }}/vars/secrets.yml"
+        mode: "0600"
+
+    - name: Initialize Terraform
+      ansible.builtin.command:
+        cmd: terraform init
+        chdir: "{{ playbook_dir }}/../terraform"
+      changed_when: true
+
+    - name: Run Terraform plan
+      ansible.builtin.command:
+        cmd: terraform plan -out=tfplan
+        chdir: "{{ playbook_dir }}/../terraform"
+      changed_when: true
+
+    - name: Confirm Terraform apply
+      ansible.builtin.pause:
+        prompt: "Review the plan above. Press ENTER to apply or Ctrl+C to abort"
+
+    - name: Apply Terraform
+      ansible.builtin.command:
+        cmd: terraform apply tfplan
+        chdir: "{{ playbook_dir }}/../terraform"
+      changed_when: true
+
+    - name: Export Terraform outputs to inventory
+      ansible.builtin.shell:
+        cmd: terraform output -json > ../ansible/vars/tf_outputs.json
+        chdir: "{{ playbook_dir }}/../terraform"
+      changed_when: true
+
+    - name: Wait for LXCs to become reachable
+      ansible.builtin.pause:
+        seconds: 30
+        prompt: "Waiting 30s for containers to boot..."
+
+- name: Install Docker on service LXCs
+  import_playbook: docker-install.yml
+
+- name: Install GitLab Runners
+  import_playbook: runner-install.yml
+
+- name: Setup Vault
+  import_playbook: vault-setup.yml
+
+- name: Setup health checks
+  import_playbook: health-check.yml

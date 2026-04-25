@@ -1,0 +1,13 @@
+---
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+  PROD_LXC_IP: "${PROD_LXC_IP}"
+
+stages:
+  - build
+  - deploy-production
+
+include:
+  - project: "${CI_PROJECT_NAMESPACE}/main-repo"
+    ref: main
+    file: "gitlab/templates/release.yml"

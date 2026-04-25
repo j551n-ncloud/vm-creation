@@ -1,0 +1,13 @@
+---
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+  STAGING_LXC_IP: "${STAGING_LXC_IP}"
+
+stages:
+  - build
+  - deploy-stage
+
+include:
+  - project: "${CI_PROJECT_NAMESPACE}/main-repo"
+    ref: main
+    file: "gitlab/templates/stage.yml"

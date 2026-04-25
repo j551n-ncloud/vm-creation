@@ -1,0 +1,110 @@
+---
+- name: Install required packages
+  ansible.builtin.apt:
+    name:
+      - wget
+      - unzip
+      - curl
+    state: present
+    update_cache: true
+
+- name: Download Vault binary
+  ansible.builtin.get_url:
+    url: "https://releases.hashicorp.com/vault/{{ vault_version }}/vault_{{ vault_version }}_linux_amd64.zip"
+    dest: /tmp/vault.zip
+    mode: "0644"
+
+- name: Extract Vault
+  ansible.builtin.unarchive:
+    src: /tmp/vault.zip
+    dest: /usr/local/bin/
+    remote_src: true
+    mode: "0755"
+
+- name: Create vault user
+  ansible.builtin.user:
+    name: vault
+    system: true
+    shell: /bin/false
+    home: /etc/vault.d
+    create_home: false
+
+- name: Create Vault directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: vault
+    group: vault
+    mode: "0750"
+  loop:
+    - /etc/vault.d
+    - /opt/vault/data
+
+- name: Deploy Vault configuration
+  ansible.builtin.template:
+    src: vault.hcl.j2
+    dest: /etc/vault.d/vault.hcl
+    owner: vault
+    group: vault
+    mode: "0640"
+
+- name: Deploy Vault systemd service
+  ansible.builtin.template:
+    src: vault.service.j2
+    dest: /etc/systemd/system/vault.service
+    mode: "0644"
+
+- name: Enable and start Vault
+  ansible.builtin.systemd:
+    name: vault
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for Vault to be ready
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: 8200
+    timeout: 30
+
+- name: Initialize Vault
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:8200/v1/sys/init"
+    method: POST
+    body_format: json
+    body:
+      secret_shares: 5
+      secret_threshold: 3
+    status_code: [200, 400]
+  register: vault_init_result
+
+- name: Save unseal keys and root token
+  ansible.builtin.copy:
+    content: "{{ vault_init_result.json | to_nice_json }}"
+    dest: /root/vault-init.json
+    mode: "0400"
+  when: vault_init_result.status == 200
+
+- name: Unseal Vault (keys 1-3)
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:8200/v1/sys/unseal"
+    method: POST
+    body_format: json
+    body:
+      key: "{{ vault_init_result.json.keys[item] }}"
+  loop: [0, 1, 2]
+  when: vault_init_result.status == 200
+
+- name: Enable KV secrets engine
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:8200/v1/sys/mounts/secret"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_init_result.json.root_token | default(vault_root_token) }}"
+    body_format: json
+    body:
+      type: kv
+      options:
+        version: "2"
+    status_code: [200, 204, 400]
+  when: vault_init_result.status == 200

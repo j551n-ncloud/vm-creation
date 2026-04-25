@@ -1,0 +1,32 @@
+---
+- name: Install proxmoxer Python library
+  ansible.builtin.pip:
+    name: proxmoxer
+    state: present
+
+- name: Test Proxmox API connection
+  community.general.proxmox_kvm:
+    api_host: "{{ proxmox_host }}"
+    api_token_id: "{{ proxmox_token_id }}"
+    api_token_secret: "{{ proxmox_token_secret }}"
+    validate_certs: false
+    state: current
+  register: proxmox_test
+  failed_when: false
+
+- name: Report connection status
+  ansible.builtin.debug:
+    msg: "Proxmox API connection: {{ 'OK' if proxmox_test is not failed else 'FAILED' }}"
+
+- name: List available nodes
+  ansible.builtin.uri:
+    url: "{{ proxmox_api_url }}/api2/json/nodes"
+    headers:
+      Authorization: "PVEAPIToken={{ proxmox_token_id }}={{ proxmox_token_secret }}"
+    validate_certs: false
+    return_content: true
+  register: nodes_response
+
+- name: Show available nodes
+  ansible.builtin.debug:
+    msg: "Available Proxmox nodes: {{ nodes_response.json.data | map(attribute='node') | list }}"

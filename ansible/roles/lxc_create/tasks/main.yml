@@ -1,0 +1,39 @@
+---
+- name: Create LXC container via Proxmox API
+  community.general.proxmox:
+    api_host: "{{ proxmox_host }}"
+    api_token_id: "{{ proxmox_token_id }}"
+    api_token_secret: "{{ proxmox_token_secret }}"
+    validate_certs: false
+    vmid: "{{ lxc_vmid }}"
+    node: "{{ lxc_node }}"
+    hostname: "{{ lxc_hostname }}"
+    ostemplate: "{{ lxc_template }}"
+    password: "{{ lxc_password }}"
+    storage: "{{ lxc_storage }}"
+    disk: "{{ lxc_disk_gb }}"
+    memory: "{{ lxc_memory }}"
+    cores: "{{ lxc_cores }}"
+    netif:
+      net0: "name=eth0,bridge={{ network_bridge }},ip={{ lxc_ip }}/24,gw={{ ip_gateway }}"
+    features:
+      - nesting=1
+      - keyctl=1
+    onboot: true
+    state: present
+
+- name: Start LXC container
+  community.general.proxmox:
+    api_host: "{{ proxmox_host }}"
+    api_token_id: "{{ proxmox_token_id }}"
+    api_token_secret: "{{ proxmox_token_secret }}"
+    validate_certs: false
+    vmid: "{{ lxc_vmid }}"
+    node: "{{ lxc_node }}"
+    state: started
+
+- name: Wait for LXC to be reachable
+  ansible.builtin.wait_for:
+    host: "{{ lxc_ip }}"
+    port: 22
+    timeout: 60

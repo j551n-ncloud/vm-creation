@@ -1,0 +1,11 @@
+---
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+
+stages:
+  - validate
+
+include:
+  - project: "${CI_PROJECT_NAMESPACE}/main-repo"
+    ref: main
+    file: "gitlab/templates/validation.yml"

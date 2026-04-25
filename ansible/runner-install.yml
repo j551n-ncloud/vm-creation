@@ -1,0 +1,10 @@
+---
+- name: Install and register GitLab Runners
+  hosts: runners
+  gather_facts: true
+
+  vars_files:
+    - vars/secrets.yml
+
+  roles:
+    - role: runner_install

@@ -1,0 +1,42 @@
+---
+build:docker:stage:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    IMAGE_TAG: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA-stage"
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  script:
+    - docker build -t "$IMAGE_TAG" .
+    - docker push "$IMAGE_TAG"
+    - docker tag "$IMAGE_TAG" "$CI_REGISTRY_IMAGE:stage-latest"
+    - docker push "$CI_REGISTRY_IMAGE:stage-latest"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "stage"
+
+deploy:stage:
+  stage: deploy-stage
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache openssh-client rsync ansible
+    - eval $(ssh-agent -s)
+    - echo "$STAGING_SSH_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - ssh-keyscan -H "$STAGING_LXC_IP" >> ~/.ssh/known_hosts
+  script:
+    - |
+      ssh root@$STAGING_LXC_IP "
+        docker compose -f /opt/$CI_PROJECT_NAME/docker-compose.yml pull &&
+        docker compose -f /opt/$CI_PROJECT_NAME/docker-compose.yml up -d --remove-orphans
+      "
+    - /scripts/health-check.sh --host $STAGING_LXC_IP --project $CI_PROJECT_ID
+  environment:
+    name: staging
+    url: "http://$STAGING_LXC_IP"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "stage"
+  needs:
+    - build:docker:stage

@@ -1,0 +1,4 @@
+---
+runner_concurrent: 4
+runner_executor: docker
+runner_docker_image: alpine:latest

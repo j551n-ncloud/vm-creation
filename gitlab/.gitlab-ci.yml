@@ -1,0 +1,15 @@
+---
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+  GIT_SUBMODULE_UPDATE_FLAGS: --remote --merge
+
+stages:
+  - validate
+  - build
+  - deploy-stage
+  - deploy-production
+
+include:
+  - local: templates/validation.yml
+  - local: templates/stage.yml
+  - local: templates/release.yml
