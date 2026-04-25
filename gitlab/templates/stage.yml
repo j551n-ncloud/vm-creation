@@ -37,6 +37,7 @@ deploy:stage:
       GITLAB_TOKEN="$GITLAB_API_TOKEN" \
       GITLAB_PROJECT_ID="$CI_PROJECT_ID" \
       DEPLOY_ENV="staging" \
+      LXC_ID="$STAGING_LXC_VMID" \
       ./scripts/update-description.sh "$CI_COMMIT_SHORT_SHA" "$CI_PROJECT_NAME"
   environment:
     name: staging

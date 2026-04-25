@@ -118,11 +118,12 @@ This creates the LXC, installs Docker, sets up Vault AppRole, creates the three 
 Push to <service>/main    →  Validation (lint yaml/dockerfile/ansible/terraform)
 Push to <service>/stage   →  Docker build → push to registry
                           →  SSH into LXC → docker compose pull + up
-                          →  GitLab description: 🚀 STAGING | abc1234 | deployed 2026-04-25 14:32
+                          →  GitLab description line 1: 🚀 STAGING | abc1234 | LXC:201 | deployed 2026-04-25 14:32
 Push tag on <service>/release →  Docker build → push to registry
                               →  SSH into LXC → docker compose pull + up
                               →  rsync ./config/ to LXC (with timestamped backup)
-                              →  GitLab description: 🚀 PRODUCTION | v1.2.3 | deployed 2026-04-25
+                              →  GitLab description line 1: 🚀 PRODUCTION | v1.2.3 | LXC:201 | deployed 2026-04-25
+                              →  GitLab description line 2: v1.2.3 | released 2026-04-25 | vaultwarden
 ```
 
 ## GitLab Project Description Format
@@ -130,14 +131,16 @@ Push tag on <service>/release →  Docker build → push to registry
 Each service repo shows two lines, updated independently:
 
 ```
-🚀 PRODUCTION | v1.2.3 | deployed 2026-04-25 14:10 | vaultwarden
+🚀 PRODUCTION | v1.2.3 | LXC:201 | deployed 2026-04-25 14:10 | vaultwarden
+v1.2.3 | released 2026-04-25 | vaultwarden
 ✅ HEALTHY | LXC:201 pve01 | 2026-04-25 14:37
 ```
 
-- **Line 1** — set by `update-description.sh` on every deploy (stage or production)
-- **Line 2** — set by `health-check.sh` cronjob every 5 minutes on the LXC
+- **Line 1** — set by `update-description.sh` on every deploy (staging uses commit SHA, production uses git tag) — includes LXC ID
+- **Line 2** — set by `update-description.sh` on production release only; shows the latest released version
+- **Line 3** — set by `health-check.sh` cronjob every 5 minutes on the LXC
 
-Neither script overwrites the other's line.
+Each script reads the current description and preserves the other lines.
 
 ## Secrets (Vault)
 
