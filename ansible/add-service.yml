@@ -1,0 +1,157 @@
+---
+# Adds a new service: creates LXC, installs Docker, sets up GitLab submodules,
+# deploys docker-compose with Vault agent, registers health check.
+#
+# Usage:
+#   ansible-playbook add-service.yml \
+#     -e service_name=my-service \
+#     -e service_vmid=202 \
+#     -e service_ip=192.168.1.202 \
+#     -e service_node=pve01 \
+#     -e service_port=8080
+
+- name: Validate input
+  hosts: localhost
+  gather_facts: false
+
+  vars_prompt:
+    - name: service_name
+      prompt: "Service name (e.g. service-a)"
+      private: false
+      when: service_name is not defined
+
+    - name: service_vmid
+      prompt: "LXC VMID (e.g. 202)"
+      private: false
+      when: service_vmid is not defined
+
+    - name: service_ip
+      prompt: "LXC IP (e.g. 192.168.1.202)"
+      private: false
+      when: service_ip is not defined
+
+    - name: service_node
+      prompt: "Proxmox node (e.g. pve01)"
+      private: false
+      default: "pve01"
+      when: service_node is not defined
+
+    - name: service_port
+      prompt: "App port inside container"
+      private: false
+      default: "8080"
+      when: service_port is not defined
+
+  vars_files:
+    - vars/secrets.yml
+
+  tasks:
+    - name: Add service to Terraform vars
+      ansible.builtin.blockinfile:
+        path: "{{ playbook_dir }}/../terraform/terraform.tfvars"
+        marker: "# {mark} SERVICE {{ service_name }}"
+        block: |
+          # Added by add-service.yml
+        insertafter: EOF
+      changed_when: false
+
+    - name: Create LXC via Proxmox API
+      community.general.proxmox:
+        api_host: "{{ proxmox_api_url | urlsplit('hostname') }}"
+        api_token_id: "{{ proxmox_token_id }}"
+        api_token_secret: "{{ proxmox_token_secret }}"
+        validate_certs: false
+        vmid: "{{ service_vmid }}"
+        node: "{{ service_node }}"
+        hostname: "{{ service_name }}"
+        ostemplate: "{{ lxc_template }}"
+        password: "{{ lxc_password }}"
+        storage: "{{ lxc_storage | default('local-lvm') }}"
+        disk: "{{ service_disk_gb | default(10) }}"
+        memory: "{{ service_memory | default(512) }}"
+        cores: "{{ service_cores | default(1) }}"
+        netif:
+          net0: "name=eth0,bridge=vmbr0,ip={{ service_ip }}/24,gw={{ ip_gateway | default('192.168.1.1') }}"
+        features:
+          - nesting=1
+          - keyctl=1
+        onboot: true
+        state: present
+
+    - name: Start LXC
+      community.general.proxmox:
+        api_host: "{{ proxmox_api_url | urlsplit('hostname') }}"
+        api_token_id: "{{ proxmox_token_id }}"
+        api_token_secret: "{{ proxmox_token_secret }}"
+        validate_certs: false
+        vmid: "{{ service_vmid }}"
+        node: "{{ service_node }}"
+        state: started
+
+    - name: Wait for LXC SSH
+      ansible.builtin.wait_for:
+        host: "{{ service_ip }}"
+        port: 22
+        timeout: 60
+
+    - name: Add host to in-memory inventory
+      ansible.builtin.add_host:
+        name: "{{ service_name }}"
+        groups: services
+        ansible_host: "{{ service_ip }}"
+        ansible_user: root
+        service_name: "{{ service_name }}"
+        service_port: "{{ service_port }}"
+
+    - name: Create GitLab submodule repos via API
+      ansible.builtin.uri:
+        url: "{{ gitlab_url }}/api/v4/projects"
+        method: POST
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+        body_format: json
+        body:
+          name: "{{ service_name }}-{{ item }}"
+          path: "{{ service_name }}-{{ item }}"
+          visibility: private
+          description: "{{ service_name }} {{ item }} pipeline"
+        status_code: [200, 201, 400]
+      loop:
+        - main
+        - stage
+        - release
+      register: gitlab_projects
+
+    - name: Init submodule repos locally and push CI template
+      ansible.builtin.shell:
+        cmd: |
+          set -e
+          TMPDIR=$(mktemp -d)
+          cp -r {{ playbook_dir }}/../gitlab/submodule-template/{{ item }} "$TMPDIR/{{ item }}"
+          cd "$TMPDIR/{{ item }}"
+          git init
+          git add -A
+          git commit -m "chore: init {{ service_name }}-{{ item }} pipeline"
+          git push \
+            "https://oauth2:{{ gitlab_api_token }}@{{ gitlab_url | urlsplit('hostname') }}/{{ gitlab_namespace | default('services') }}/{{ service_name }}-{{ item }}.git" \
+            HEAD:main
+          rm -rf "$TMPDIR"
+      loop:
+        - main
+        - stage
+        - release
+      changed_when: true
+
+- name: Install Docker and deploy service
+  hosts: "{{ service_name }}"
+  gather_facts: true
+
+  vars_files:
+    - vars/secrets.yml
+
+  roles:
+    - role: docker_install
+    - role: service_deploy
+
+- name: Register health check for new service
+  import_playbook: health-check.yml
