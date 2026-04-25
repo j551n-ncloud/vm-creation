@@ -34,7 +34,14 @@ deploy:production:
       "
     - |
       rsync -avz --delete \
-        -e "ssh -o StrictHostKeyChecking=no" \
+        --timeout=30 \
+        --exclude=".env" \
+        --exclude="secrets/" \
+        --exclude="*.key" \
+        --exclude="*.pem" \
+        --stats \
+        ${RSYNC_BACKUP_DEST:+--backup --backup-dir="$RSYNC_BACKUP_DEST/$(date +%Y%m%d-%H%M%S)"} \
+        -e "ssh -o StrictHostKeyChecking=no -o BatchMode=yes" \
         ./config/ \
         root@$PROD_LXC_IP:/opt/$CI_PROJECT_NAME/config/
     - |
