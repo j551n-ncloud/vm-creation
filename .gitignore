@@ -2,6 +2,7 @@
 terraform/.terraform/
 terraform/.terraform.lock.hcl
 terraform/terraform.tfvars
+terraform/terraform.auto.tfvars
 terraform/tfplan
 terraform/*.tfstate
 terraform/*.tfstate.backup

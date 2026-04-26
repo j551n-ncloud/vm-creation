@@ -3,5 +3,4 @@ proxmox_api_token    = "{{ proxmox_api_token }}"
 proxmox_tls_insecure = true
 proxmox_nodes        = {{ proxmox_nodes | to_json }}
 lxc_password         = "{{ lxc_password }}"
-ip_gateway           = "{{ ip_gateway | default('192.168.1.1') }}"
 gitlab_url           = "{{ gitlab_url }}"
