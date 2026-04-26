@@ -1,7 +1,7 @@
 ---
 - name: Interactive GitOps Stack Initialization
   hosts: localhost
-  gather_facts: false
+  gather_facts: true
 
   vars_prompt:
     - name: proxmox_api_url
@@ -13,7 +13,7 @@
       private: true
 
     - name: proxmox_nodes_input
-      prompt: "Proxmox nodes to use (comma-separated, e.g. pve01,pve02)"
+      prompt: "Proxmox nodes (comma-separated, e.g. pve01,pve02)"
       private: false
       default: "pve01"
 
@@ -23,30 +23,23 @@
       confirm: true
 
     - name: gitlab_url
-      prompt: "Existing GitLab URL (e.g. https://gitlab.example.com)"
+      prompt: "GitLab URL (e.g. https://gitlab.example.com)"
       private: false
 
     - name: gitlab_api_token
-      prompt: "GitLab API token (for pushing configs + updating descriptions)"
+      prompt: "GitLab API token (api scope)"
       private: true
 
-    - name: gitlab_runner_token
-      prompt: "GitLab Runner registration token"
-      private: true
-
-    - name: gitlab_project_id
-      prompt: "GitLab project ID (for health-check description updates)"
+    - name: gitlab_project_path
+      prompt: "GitLab project path for this stack (e.g. mygroup/proxmox-stack)"
       private: false
-
-    - name: vault_token
-      prompt: "Vault root token (leave empty to auto-generate)"
-      private: true
-      default: ""
 
   tasks:
     - name: Parse node list
       ansible.builtin.set_fact:
         proxmox_nodes: "{{ proxmox_nodes_input.split(',') | map('trim') | list }}"
+
+    # ── Terraform install ────────────────────────────────────────────────────
 
     - name: Check if Terraform is installed
       ansible.builtin.command: terraform version
@@ -55,155 +48,111 @@
       failed_when: false
 
     - name: Install Terraform (Linux)
-      when:
-        - terraform_check.rc != 0
-        - ansible_system == "Linux"
+      when: terraform_check.rc != 0 and ansible_system == "Linux"
       block:
         - name: Get latest Terraform version
           ansible.builtin.uri:
             url: https://checkpoint-api.hashicorp.com/v1/check/terraform
-            return_content: true
-          register: tf_version_response
+          register: tf_ver
 
-        - name: Set Terraform version fact
-          ansible.builtin.set_fact:
-            tf_version: "{{ tf_version_response.json.current_version }}"
-
-        - name: Download Terraform
-          ansible.builtin.get_url:
-            url: "https://releases.hashicorp.com/terraform/{{ tf_version }}/terraform_{{ tf_version }}_linux_amd64.zip"
-            dest: /tmp/terraform.zip
-            mode: "0644"
-
-        - name: Unzip and install Terraform
+        - name: Download and install Terraform
           ansible.builtin.unarchive:
-            src: /tmp/terraform.zip
+            src: "https://releases.hashicorp.com/terraform/{{ tf_ver.json.current_version }}/terraform_{{ tf_ver.json.current_version }}_linux_amd64.zip"
             dest: /usr/local/bin/
             remote_src: true
             mode: "0755"
 
-        - name: Clean up zip
-          ansible.builtin.file:
-            path: /tmp/terraform.zip
-            state: absent
-
-    - name: Install Terraform (macOS via Homebrew)
-      when:
-        - terraform_check.rc != 0
-        - ansible_system == "Darwin"
+    - name: Install Terraform (macOS)
+      when: terraform_check.rc != 0 and ansible_system == "Darwin"
       ansible.builtin.command: brew install terraform
       changed_when: true
 
-    - name: Verify Terraform is available
-      ansible.builtin.command: terraform version
-      changed_when: false
+    # ── Fetch GitLab info automatically ─────────────────────────────────────
 
-    - name: Write terraform.tfvars from input
+    - name: Fetch project ID from GitLab
+      ansible.builtin.uri:
+        url: "{{ gitlab_url }}/api/v4/projects/{{ gitlab_project_path | urlencode | replace('/', '%2F') }}"
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+      register: gitlab_project
+
+    - name: Create GitLab Runner via API
+      ansible.builtin.uri:
+        url: "{{ gitlab_url }}/api/v4/user/runners"
+        method: POST
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+        body_format: json
+        body:
+          runner_type: instance_type
+          description: "gitops-runner"
+          tag_list: ["docker", "gitops"]
+          run_untagged: true
+        status_code: [200, 201]
+      register: gitlab_runner
+
+    - name: Show fetched values
+      ansible.builtin.debug:
+        msg:
+          - "Project ID: {{ gitlab_project.json.id }}"
+          - "Runner token: {{ gitlab_runner.json.token }}"
+
+    # ── Write config files ───────────────────────────────────────────────────
+
+    - name: Write terraform.tfvars
       ansible.builtin.template:
         src: templates/terraform.tfvars.j2
         dest: "{{ playbook_dir }}/../terraform/terraform.tfvars"
         mode: "0600"
 
-    - name: Write secrets vars file
+    - name: Write secrets vars
       ansible.builtin.copy:
         content: |
           gitlab_url: "{{ gitlab_url }}"
           gitlab_api_token: "{{ gitlab_api_token }}"
-          gitlab_runner_token: "{{ gitlab_runner_token }}"
-          gitlab_project_id: "{{ gitlab_project_id }}"
-          vault_root_token: "{{ vault_token }}"
+          gitlab_runner_token: "{{ gitlab_runner.json.token }}"
+          gitlab_project_id: "{{ gitlab_project.json.id }}"
           lxc_password: "{{ lxc_password }}"
         dest: "{{ playbook_dir }}/vars/secrets.yml"
         mode: "0600"
 
-    - name: Initialize Terraform
+    # ── Terraform ────────────────────────────────────────────────────────────
+
+    - name: Terraform init
       ansible.builtin.command:
         cmd: terraform init
         chdir: "{{ playbook_dir }}/../terraform"
       changed_when: true
 
-    - name: Run Terraform plan
+    - name: Terraform plan
       ansible.builtin.command:
         cmd: terraform plan -out=tfplan
         chdir: "{{ playbook_dir }}/../terraform"
       changed_when: true
 
-    - name: Confirm Terraform apply
+    - name: Confirm apply
       ansible.builtin.pause:
-        prompt: "Review the plan above. Press ENTER to apply or Ctrl+C to abort"
+        prompt: "Review plan above. Press ENTER to apply or Ctrl+C to abort"
 
-    - name: Apply Terraform (create LXCs)
+    - name: Terraform apply
       ansible.builtin.command:
         cmd: terraform apply tfplan
-        chdir: "{{ playbook_dir }}/../terraform"
-      changed_when: true
-
-    - name: Export Terraform outputs to vars
-      ansible.builtin.shell:
-        cmd: terraform output -json > ../ansible/vars/tf_outputs.json
         chdir: "{{ playbook_dir }}/../terraform"
       changed_when: true
 
     - name: Wait for LXCs to boot
       ansible.builtin.pause:
         seconds: 30
-        prompt: "Waiting 30s for containers to come up..."
+        prompt: "Waiting 30s for containers..."
 
-# Step 2: Install Docker on service LXCs
 - name: Install Docker on service LXCs
   import_playbook: docker-install.yml
 
-# Step 3: Register GitLab Runners to existing GitLab
 - name: Install and register GitLab Runners
   import_playbook: runner-install.yml
 
-# Step 4: Setup Vault
 - name: Initialize Vault
   import_playbook: vault-setup.yml
 
-# Step 5: Deploy health checks and push initial configs to GitLab
 - name: Setup health checks
   import_playbook: health-check.yml
-
-- name: Push initial configs to remote GitLab
-  hosts: localhost
-  gather_facts: false
-
-  vars_files:
-    - vars/secrets.yml
-
-  tasks:
-    - name: Check if git remote already set
-      ansible.builtin.command:
-        cmd: git remote get-url origin
-        chdir: "{{ playbook_dir }}/.."
-      register: git_remote
-      changed_when: false
-      failed_when: false
-
-    - name: Set GitLab remote if not present
-      ansible.builtin.command:
-        cmd: git remote add origin "{{ gitlab_url }}/gitops/proxmox-stack.git"
-        chdir: "{{ playbook_dir }}/.."
-      when: git_remote.rc != 0
-      changed_when: true
-
-    - name: Push configs to GitLab main branch
-      ansible.builtin.shell:
-        cmd: |
-          git config user.email "ansible@gitops"
-          git config user.name "Ansible Init"
-          git add -A
-          git diff --cached --quiet || git commit -m "chore: initial gitops stack config"
-          git push \
-            "https://oauth2:{{ gitlab_api_token }}@{{ gitlab_url | urlsplit('hostname') }}/gitops/proxmox-stack.git" \
-            HEAD:main
-        chdir: "{{ playbook_dir }}/.."
-      changed_when: true
-
-    - name: Confirm stack is ready
-      ansible.builtin.debug:
-        msg: >
-          Stack initialized.
-          GitLab: {{ gitlab_url }}
-          Runners registered, Vault running, health checks active.
