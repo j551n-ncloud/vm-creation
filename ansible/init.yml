@@ -27,12 +27,16 @@
       private: false
 
     - name: gitlab_api_token
-      prompt: "GitLab API token (api scope)"
+      prompt: "GitLab API token (needs: api scope)"
       private: true
 
     - name: gitlab_project_path
       prompt: "GitLab project path for this stack (e.g. mygroup/proxmox-stack)"
       private: false
+
+    - name: gitlab_runner_token
+      prompt: "GitLab Runner token (Admin > CI/CD > Runners > New instance runner → starts with glrt-)"
+      private: true
 
   tasks:
     - name: Parse node list
@@ -48,7 +52,7 @@
       failed_when: false
 
     - name: Install Terraform (Linux)
-      when: terraform_check.rc != 0 and ansible_system == "Linux"
+      when: terraform_check.rc != 0 and ansible_facts['system'] == "Linux"
       block:
         - name: Get latest Terraform version
           ansible.builtin.uri:
@@ -63,11 +67,11 @@
             mode: "0755"
 
     - name: Install Terraform (macOS)
-      when: terraform_check.rc != 0 and ansible_system == "Darwin"
+      when: terraform_check.rc != 0 and ansible_facts['system'] == "Darwin"
       ansible.builtin.command: brew install terraform
       changed_when: true
 
-    # ── Fetch GitLab info automatically ─────────────────────────────────────
+    # ── Fetch project ID from GitLab ─────────────────────────────────────────
 
     - name: Fetch project ID from GitLab
       ansible.builtin.uri:
@@ -76,26 +80,11 @@
           PRIVATE-TOKEN: "{{ gitlab_api_token }}"
       register: gitlab_project
 
-    - name: Create GitLab Runner via API
-      ansible.builtin.uri:
-        url: "{{ gitlab_url }}/api/v4/user/runners"
-        method: POST
-        headers:
-          PRIVATE-TOKEN: "{{ gitlab_api_token }}"
-        body_format: json
-        body:
-          runner_type: instance_type
-          description: "gitops-runner"
-          tag_list: ["docker", "gitops"]
-          run_untagged: true
-        status_code: [200, 201]
-      register: gitlab_runner
-
-    - name: Show fetched values
+    - name: Show resolved values
       ansible.builtin.debug:
         msg:
-          - "Project ID: {{ gitlab_project.json.id }}"
-          - "Runner token: {{ gitlab_runner.json.token }}"
+          - "Project ID : {{ gitlab_project.json.id }}"
+          - "Project URL: {{ gitlab_project.json.web_url }}"
 
     # ── Write config files ───────────────────────────────────────────────────
 
@@ -110,7 +99,7 @@
         content: |
           gitlab_url: "{{ gitlab_url }}"
           gitlab_api_token: "{{ gitlab_api_token }}"
-          gitlab_runner_token: "{{ gitlab_runner.json.token }}"
+          gitlab_runner_token: "{{ gitlab_runner_token }}"
           gitlab_project_id: "{{ gitlab_project.json.id }}"
           lxc_password: "{{ lxc_password }}"
         dest: "{{ playbook_dir }}/vars/secrets.yml"
