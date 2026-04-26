@@ -9,6 +9,7 @@ terraform/*.tfstate.backup
 # Ansible secrets
 ansible/vars/secrets.yml
 ansible/vars/tf_outputs.json
+ansible/host_vars/*.yml
 
 # Vault init output (contains unseal keys!)
 **/vault-init.json

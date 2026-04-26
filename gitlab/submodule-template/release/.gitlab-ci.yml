@@ -1,13 +1,19 @@
 ---
+# Required CI variables for this project:
+#   GITOPS_REPO_PATH    e.g. mygroup/proxmox-gitlab-stack
+#   PROD_LXC_IP         IP of the production LXC
+#   PROD_LXC_VMID       Container ID (e.g. 201) — shown in GitLab description
+#   PROD_SSH_KEY        Private SSH key for the production LXC
+#   GITLAB_API_TOKEN    Token with api scope
+#   RSYNC_BACKUP_DEST   (optional) Remote path for timestamped config backups
 variables:
   GIT_SUBMODULE_STRATEGY: recursive
-  PROD_LXC_IP: "${PROD_LXC_IP}"
 
 stages:
   - build
   - deploy-production
 
 include:
-  - project: "${CI_PROJECT_NAMESPACE}/main-repo"
+  - project: "${GITOPS_REPO_PATH}"
     ref: main
     file: "gitlab/templates/release.yml"

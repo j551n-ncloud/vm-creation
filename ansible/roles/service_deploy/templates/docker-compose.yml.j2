@@ -8,21 +8,27 @@ services:
       - ./secrets/role_id:/vault/secrets/role_id:ro
       - ./secrets/secret_id:/vault/secrets/secret_id:ro
       - ./secrets/env.ctmpl:/vault/config/env.ctmpl:ro
-      - secrets:/vault/secrets
+      - ./secrets:/vault/secrets
     environment:
       VAULT_ADDR: {{ vault_addr }}
     command: agent -config=/vault/config/vault-agent.hcl
     cap_add:
       - IPC_LOCK
+    healthcheck:
+      test: ["CMD", "test", "-f", "/vault/secrets/app.env"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   app:
     image: {{ service_image }}:{{ service_image_tag | default('latest') }}
     container_name: {{ service_name }}-app
     restart: unless-stopped
     depends_on:
-      - vault-agent
+      vault-agent:
+        condition: service_healthy
     volumes:
-      - secrets:/run/secrets:ro
+      - ./secrets:/run/secrets:ro
     env_file:
       - .env
       - ./secrets/app.env
@@ -33,6 +39,3 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-
-volumes:
-  secrets:

@@ -29,20 +29,7 @@
     dest: "{{ service_base_path }}/{{ service_name }}/secrets/env.ctmpl"
     mode: "0640"
 
-- name: Create Vault AppRole for service
-  ansible.builtin.uri:
-    url: "{{ vault_addr }}/v1/auth/approle/role/{{ service_name }}"
-    method: POST
-    headers:
-      X-Vault-Token: "{{ vault_root_token }}"
-    body_format: json
-    body:
-      token_policies: ["{{ service_name }}-policy"]
-      token_ttl: "1h"
-      token_max_ttl: "24h"
-    status_code: [200, 204]
-  delegate_to: localhost
-
+# Policy must exist before the role references it
 - name: Create Vault policy for service
   ansible.builtin.uri:
     url: "{{ vault_addr }}/v1/sys/policies/acl/{{ service_name }}-policy"
@@ -58,6 +45,32 @@
     status_code: [200, 204]
   delegate_to: localhost
 
+- name: Enable AppRole auth method (idempotent)
+  ansible.builtin.uri:
+    url: "{{ vault_addr }}/v1/sys/auth/approle"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_root_token }}"
+    body_format: json
+    body:
+      type: approle
+    status_code: [200, 204, 400]
+  delegate_to: localhost
+
+- name: Create Vault AppRole for service
+  ansible.builtin.uri:
+    url: "{{ vault_addr }}/v1/auth/approle/role/{{ service_name }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_root_token }}"
+    body_format: json
+    body:
+      token_policies: ["{{ service_name }}-policy"]
+      token_ttl: "1h"
+      token_max_ttl: "24h"
+    status_code: [200, 204]
+  delegate_to: localhost
+
 - name: Fetch AppRole role_id
   ansible.builtin.uri:
     url: "{{ vault_addr }}/v1/auth/approle/role/{{ service_name }}/role-id"
@@ -66,7 +79,7 @@
   register: approle_role_id
   delegate_to: localhost
 
-- name: Fetch AppRole secret_id
+- name: Generate AppRole secret_id
   ansible.builtin.uri:
     url: "{{ vault_addr }}/v1/auth/approle/role/{{ service_name }}/secret-id"
     method: POST
@@ -87,8 +100,8 @@
     dest: "{{ service_base_path }}/{{ service_name }}/secrets/secret_id"
     mode: "0400"
 
-- name: Pull and start service
-  community.docker.docker_compose_v2:
-    project_src: "{{ service_base_path }}/{{ service_name }}"
-    pull: always
-    state: present
+- name: Pull and start service via docker compose
+  ansible.builtin.command:
+    cmd: docker compose up -d --pull always --remove-orphans
+    chdir: "{{ service_base_path }}/{{ service_name }}"
+  changed_when: true

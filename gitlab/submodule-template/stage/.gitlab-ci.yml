@@ -1,13 +1,18 @@
 ---
+# Required CI variables for this project:
+#   GITOPS_REPO_PATH    e.g. mygroup/proxmox-gitlab-stack
+#   STAGING_LXC_IP      IP of the staging LXC
+#   STAGING_LXC_VMID    Container ID (e.g. 201) — shown in GitLab description
+#   STAGING_SSH_KEY     Private SSH key for the staging LXC
+#   GITLAB_API_TOKEN    Token with api scope
 variables:
   GIT_SUBMODULE_STRATEGY: recursive
-  STAGING_LXC_IP: "${STAGING_LXC_IP}"
 
 stages:
   - build
   - deploy-stage
 
 include:
-  - project: "${CI_PROJECT_NAMESPACE}/main-repo"
+  - project: "${GITOPS_REPO_PATH}"
     ref: main
     file: "gitlab/templates/stage.yml"

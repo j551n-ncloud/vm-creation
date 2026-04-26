@@ -8,7 +8,6 @@
 
   vars:
     health_script_path: /usr/local/bin/health-check.sh
-    health_cron_minute: "*/5"
 
   tasks:
     - name: Copy health check script
@@ -17,19 +16,21 @@
         dest: "{{ health_script_path }}"
         mode: "0755"
 
-    - name: Install health check cronjob
-      ansible.builtin.cron:
-        name: "GitLab health check"
-        minute: "{{ health_cron_minute }}"
-        job: >
-          GITLAB_URL="{{ gitlab_url }}"
-          GITLAB_TOKEN="{{ gitlab_runner_token }}"
-          {{ health_script_path }} >> /var/log/health-check.log 2>&1
-        user: root
-        state: present
-
     - name: Copy update-description script
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/../scripts/update-description.sh"
         dest: /usr/local/bin/update-description.sh
         mode: "0755"
+
+    - name: Install health check cronjob
+      ansible.builtin.cron:
+        name: "GitLab health check"
+        minute: "*/5"
+        job: >
+          GITLAB_URL="{{ gitlab_url }}"
+          GITLAB_TOKEN="{{ gitlab_api_token }}"
+          GITLAB_PROJECT_ID="{{ gitlab_project_id | default('') }}"
+          LXC_ID="{{ service_vmid | default('') }}"
+          {{ health_script_path }} >> /var/log/health-check.log 2>&1
+        user: root
+        state: present

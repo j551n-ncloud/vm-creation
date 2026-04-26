@@ -1,4 +1,6 @@
 ---
+# GITOPS_REPO_PATH must be set as a GitLab CI variable for this project,
+# e.g. mygroup/proxmox-gitlab-stack
 variables:
   GIT_SUBMODULE_STRATEGY: recursive
 
@@ -6,6 +8,6 @@ stages:
   - validate
 
 include:
-  - project: "${CI_PROJECT_NAMESPACE}/main-repo"
+  - project: "${GITOPS_REPO_PATH}"
     ref: main
     file: "gitlab/templates/validation.yml"
