@@ -1,0 +1,10 @@
+---
+- name: Initialize and configure HashiCorp Vault
+  hosts: vault
+  gather_facts: true
+
+  vars_files:
+    - vars/secrets.yml
+
+  roles:
+    - role: vault_setup

@@ -1,0 +1,4 @@
+---
+service_base_path: /opt
+service_user: root
+vault_addr: "http://{{ hostvars['vault']['ansible_host'] }}:8200"

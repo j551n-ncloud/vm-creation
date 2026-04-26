@@ -1,0 +1,7 @@
+---
+- name: Install Docker on service LXCs
+  hosts: services
+  gather_facts: true
+
+  roles:
+    - role: docker_install

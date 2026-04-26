@@ -1,0 +1,41 @@
+services:
+  vault-agent:
+    image: hashicorp/vault:latest
+    container_name: {{ service_name }}-vault-agent
+    restart: unless-stopped
+    volumes:
+      - ./secrets/vault-agent.hcl:/vault/config/vault-agent.hcl:ro
+      - ./secrets/role_id:/vault/secrets/role_id:ro
+      - ./secrets/secret_id:/vault/secrets/secret_id:ro
+      - ./secrets/env.ctmpl:/vault/config/env.ctmpl:ro
+      - ./secrets:/vault/secrets
+    environment:
+      VAULT_ADDR: {{ vault_addr }}
+    command: agent -config=/vault/config/vault-agent.hcl
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD", "test", "-f", "/vault/secrets/app.env"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  app:
+    image: {{ service_image }}:{{ service_image_tag | default('latest') }}
+    container_name: {{ service_name }}-app
+    restart: unless-stopped
+    depends_on:
+      vault-agent:
+        condition: service_healthy
+    volumes:
+      - ./secrets:/run/secrets:ro
+    env_file:
+      - .env
+      - ./secrets/app.env
+    ports:
+      - "{{ service_port | default('8080') }}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

@@ -1,0 +1,45 @@
+services:
+  vault-agent:
+    image: hashicorp/vault:latest
+    container_name: vaultwarden-vault-agent
+    restart: unless-stopped
+    volumes:
+      - ./vault-agent.hcl:/vault/config/vault-agent.hcl:ro
+      - ./secrets/role_id:/vault/secrets/role_id:ro
+      - ./secrets/secret_id:/vault/secrets/secret_id:ro
+      - ./secrets/env.ctmpl:/vault/config/env.ctmpl:ro
+      - ./secrets:/vault/secrets
+    environment:
+      VAULT_ADDR: ${VAULT_ADDR}
+    command: agent -config=/vault/config/vault-agent.hcl
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD", "test", "-f", "/vault/secrets/app.env"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    restart: unless-stopped
+    depends_on:
+      vault-agent:
+        condition: service_healthy
+    volumes:
+      - vaultwarden_data:/data
+      - ./secrets:/run/secrets:ro
+    env_file:
+      - .env
+      - ./secrets/app.env
+    ports:
+      - "${VAULTWARDEN_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:80/alive"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  vaultwarden_data:

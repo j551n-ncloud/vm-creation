@@ -1,0 +1,46 @@
+---
+- name: Add GitLab Runner repo key
+  ansible.builtin.apt_key:
+    url: https://packages.gitlab.com/runner/gitlab-runner/gpgkey
+    state: present
+
+- name: Add GitLab Runner repository
+  ansible.builtin.apt_repository:
+    repo: "deb https://packages.gitlab.com/runner/gitlab-runner/debian/ {{ ansible_distribution_release }} main"
+    state: present
+    filename: gitlab-runner
+
+- name: Install GitLab Runner
+  ansible.builtin.apt:
+    name: gitlab-runner
+    state: present
+    update_cache: true
+
+- name: Enable and start GitLab Runner service
+  ansible.builtin.systemd:
+    name: gitlab-runner
+    enabled: true
+    state: started
+
+- name: Register GitLab Runner
+  ansible.builtin.command:
+    cmd: >
+      gitlab-runner register
+      --non-interactive
+      --url "{{ gitlab_url }}"
+      --registration-token "{{ gitlab_runner_token }}"
+      --executor "docker"
+      --docker-image "alpine:latest"
+      --description "runner-{{ inventory_hostname }}"
+      --tag-list "docker,gitops"
+      --run-untagged="true"
+      --locked="false"
+  register: runner_register
+  changed_when: runner_register.rc == 0
+  failed_when: runner_register.rc != 0
+
+- name: Configure concurrent jobs
+  ansible.builtin.lineinfile:
+    path: /etc/gitlab-runner/config.toml
+    regexp: '^concurrent'
+    line: "concurrent = {{ runner_concurrent | default(4) }}"

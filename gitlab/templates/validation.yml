@@ -1,0 +1,50 @@
+---
+lint:yaml:
+  stage: validate
+  image: cytopia/yamllint:latest
+  script:
+    - yamllint -c .yamllint.yml . || yamllint .
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+
+lint:dockerfile:
+  stage: validate
+  image: hadolint/hadolint:latest-alpine
+  script:
+    - find . -name "Dockerfile*" -exec hadolint {} \;
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - exists:
+        - "**/Dockerfile*"
+
+lint:ansible:
+  stage: validate
+  image: cytopia/ansible-lint:latest
+  script:
+    - ansible-lint ansible/
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - exists:
+        - "ansible/**/*.yml"
+
+lint:terraform:
+  stage: validate
+  image: hashicorp/terraform:latest
+  script:
+    - cd terraform && terraform init -backend=false && terraform validate
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - exists:
+        - "terraform/*.tf"
+
+syntax:check:
+  stage: validate
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache bash
+  script:
+    - find scripts/ -name "*.sh" -exec bash -n {} \;
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - exists:
+        - "scripts/*.sh"

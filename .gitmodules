@@ -1,0 +1,4 @@
+[submodule "services"]
+	path = services
+	url = ../services.git
+	branch = main

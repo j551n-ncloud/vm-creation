@@ -1,0 +1,4 @@
+---
+vault_version: "1.17.2"
+vault_listen_address: "0.0.0.0:8200"
+vault_storage_path: /opt/vault/data

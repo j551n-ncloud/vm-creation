@@ -1,0 +1,30 @@
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+terraform/tfplan
+terraform/*.tfstate
+terraform/*.tfstate.backup
+
+# Ansible secrets
+ansible/vars/secrets.yml
+ansible/vars/tf_outputs.json
+ansible/host_vars/*.yml
+
+# Vault init output (contains unseal keys!)
+**/vault-init.json
+
+# Service secrets (written by Ansible at deploy time)
+services/**/secrets/role_id
+services/**/secrets/secret_id
+services/**/.env
+
+# SSH keys
+*.pem
+*.key
+id_rsa
+id_ed25519
+
+# OS
+.DS_Store
+*.swp

@@ -1,0 +1,171 @@
+---
+# Adds a new service: creates LXC, installs Docker, sets up GitLab submodules,
+# deploys docker-compose with Vault agent, registers health check.
+#
+# Usage:
+#   ansible-playbook add-service.yml \
+#     -e service_name=vaultwarden \
+#     -e service_vmid=202 \
+#     -e service_ip=192.168.1.202 \
+#     -e service_node=pve01 \
+#     -e service_port=8080
+
+- name: Create LXC and GitLab repos
+  hosts: localhost
+  gather_facts: false
+
+  vars_files:
+    - vars/secrets.yml
+
+  tasks:
+    - name: Ensure required vars are set
+      ansible.builtin.assert:
+        that:
+          - service_name is defined
+          - service_vmid is defined
+          - service_ip is defined
+        fail_msg: "Pass -e service_name=X -e service_vmid=Y -e service_ip=Z"
+
+    - name: Create LXC via Proxmox API
+      community.general.proxmox:
+        api_host: "{{ proxmox_api_url | urlsplit('hostname') }}"
+        api_token_id: "{{ proxmox_token_id }}"
+        api_token_secret: "{{ proxmox_token_secret }}"
+        validate_certs: false
+        vmid: "{{ service_vmid }}"
+        node: "{{ service_node | default('pve01') }}"
+        hostname: "{{ service_name }}"
+        ostemplate: "{{ lxc_template }}"
+        password: "{{ lxc_password }}"
+        storage: "{{ lxc_storage | default('local-lvm') }}"
+        disk: "{{ service_disk_gb | default(10) }}"
+        memory: "{{ service_memory | default(512) }}"
+        cores: "{{ service_cores | default(1) }}"
+        netif:
+          net0: "name=eth0,bridge=vmbr0,ip={{ service_ip }}/24,gw={{ ip_gateway | default('192.168.1.1') }}"
+        features:
+          - nesting=1
+          - keyctl=1
+        onboot: true
+        state: present
+
+    - name: Start LXC
+      community.general.proxmox:
+        api_host: "{{ proxmox_api_url | urlsplit('hostname') }}"
+        api_token_id: "{{ proxmox_token_id }}"
+        api_token_secret: "{{ proxmox_token_secret }}"
+        validate_certs: false
+        vmid: "{{ service_vmid }}"
+        node: "{{ service_node | default('pve01') }}"
+        state: started
+
+    - name: Wait for LXC SSH
+      ansible.builtin.wait_for:
+        host: "{{ service_ip }}"
+        port: 22
+        timeout: 60
+
+    - name: Add host to in-memory inventory
+      ansible.builtin.add_host:
+        name: "{{ service_name }}"
+        groups: new_service
+        ansible_host: "{{ service_ip }}"
+        ansible_user: root
+        service_name: "{{ service_name }}"
+        service_port: "{{ service_port | default('8080') }}"
+        service_vmid: "{{ service_vmid }}"
+
+    - name: Create GitLab submodule repos via API
+      ansible.builtin.uri:
+        url: "{{ gitlab_url }}/api/v4/projects"
+        method: POST
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+        body_format: json
+        body:
+          name: "{{ service_name }}-{{ item }}"
+          path: "{{ service_name }}-{{ item }}"
+          visibility: private
+          description: "{{ service_name }} {{ item }} pipeline"
+        status_code: [201, 400]
+      loop:
+        - main
+        - stage
+        - release
+      register: gitlab_projects
+
+    - name: Push CI template to newly created repos only
+      ansible.builtin.shell:
+        cmd: |
+          set -e
+          TMPDIR=$(mktemp -d)
+          trap "rm -rf $TMPDIR" EXIT
+          cp -r {{ playbook_dir }}/../gitlab/submodule-template/{{ item.item }} "$TMPDIR/repo"
+          cd "$TMPDIR/repo"
+          git init -b main
+          git config user.email "ansible@gitops"
+          git config user.name "Ansible"
+          git add -A
+          git commit -m "chore: init {{ service_name }}-{{ item.item }} pipeline"
+          git push \
+            "https://oauth2:{{ gitlab_api_token }}@{{ gitlab_url | urlsplit('hostname') }}/{{ gitlab_namespace | default('services') }}/{{ service_name }}-{{ item.item }}.git" \
+            main
+      loop: "{{ gitlab_projects.results }}"
+      when: item.status == 201
+      changed_when: true
+
+    - name: Fetch GitLab project IDs for health check
+      ansible.builtin.uri:
+        url: "{{ gitlab_url }}/api/v4/projects/{{ gitlab_namespace | default('services') }}%2F{{ service_name }}-main"
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+      register: gitlab_main_project
+
+    - name: Write host_vars for new service
+      ansible.builtin.copy:
+        content: |
+          gitlab_project_id: "{{ gitlab_main_project.json.id }}"
+          service_vmid: "{{ service_vmid }}"
+        dest: "{{ playbook_dir }}/host_vars/{{ service_name }}.yml"
+        mode: "0640"
+
+- name: Install Docker, deploy service and Vault config
+  hosts: new_service
+  gather_facts: true
+
+  vars_files:
+    - vars/secrets.yml
+
+  roles:
+    - role: docker_install
+    - role: service_deploy
+
+- name: Register health check for new service
+  hosts: new_service
+  gather_facts: false
+
+  vars_files:
+    - vars/secrets.yml
+
+  vars:
+    health_script_path: /usr/local/bin/health-check.sh
+
+  tasks:
+    - name: Copy health check script
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../scripts/health-check.sh"
+        dest: "{{ health_script_path }}"
+        mode: "0755"
+
+    - name: Install health check cronjob
+      ansible.builtin.cron:
+        name: "GitLab health check"
+        minute: "*/5"
+        job: >
+          GITLAB_URL="{{ gitlab_url }}"
+          GITLAB_TOKEN="{{ gitlab_api_token }}"
+          GITLAB_PROJECT_ID="{{ hostvars[inventory_hostname]['gitlab_project_id'] | default('') }}"
+          LXC_ID="{{ service_vmid }}"
+          {{ health_script_path }} >> /var/log/health-check.log 2>&1
+        user: root
+        state: present
