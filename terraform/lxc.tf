@@ -46,7 +46,6 @@ resource "proxmox_virtual_environment_container" "services" {
 
   features {
     nesting = true
-    keyctl  = true
   }
 
   start_on_boot = true
@@ -101,7 +100,6 @@ resource "proxmox_virtual_environment_container" "runners" {
 
   features {
     nesting = true
-    keyctl  = true
   }
 
   start_on_boot = true
