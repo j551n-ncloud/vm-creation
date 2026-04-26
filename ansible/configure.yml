@@ -1,0 +1,85 @@
+---
+# Run this ONCE to store credentials. After that use init.yml directly.
+- name: Configure credentials
+  hosts: localhost
+  gather_facts: false
+
+  vars_prompt:
+    - name: proxmox_api_url
+      prompt: "Proxmox API URL (e.g. https://pve01:8006)"
+      private: false
+
+    - name: proxmox_api_token
+      prompt: "Proxmox API Token (USER@REALM!TOKENID=UUID)"
+      private: true
+
+    - name: proxmox_nodes_input
+      prompt: "Proxmox nodes (comma-separated, e.g. pve01,pve02)"
+      private: false
+      default: "pve01"
+
+    - name: lxc_password
+      prompt: "LXC root password"
+      private: true
+      confirm: true
+
+    - name: gitlab_url
+      prompt: "GitLab URL (e.g. https://gitlab.example.com)"
+      private: false
+
+    - name: gitlab_api_token
+      prompt: "GitLab API token (api scope)"
+      private: true
+
+    - name: gitlab_project_path
+      prompt: "GitLab project path (e.g. mygroup/proxmox-stack)"
+      private: false
+
+    - name: gitlab_runner_token
+      prompt: "GitLab Runner token (Admin > CI/CD > Runners > New instance runner)"
+      private: true
+
+  tasks:
+    - name: Validate Proxmox token format
+      ansible.builtin.assert:
+        that: proxmox_api_token | trim | regex_search('^[^@]+@[^!]+![^=]+=.+$')
+        fail_msg: |
+          Invalid format. Expected: USER@REALM!TOKENID=UUID
+          Example:   root@pam!terraform=ce2958a4-313c-402c-9dfc-3b3d7838afc7
+
+    - name: Fetch GitLab project ID
+      ansible.builtin.uri:
+        url: "{{ gitlab_url | trim }}/api/v4/projects/{{ gitlab_project_path | trim | urlencode | replace('/', '%2F') }}"
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_api_token | trim }}"
+      register: gitlab_project
+
+    - name: Write vars/secrets.yml
+      ansible.builtin.copy:
+        content: |
+          proxmox_api_url: "{{ proxmox_api_url | trim }}"
+          proxmox_api_token: "{{ proxmox_api_token | trim }}"
+          proxmox_nodes: {{ proxmox_nodes_input.split(',') | map('trim') | list | to_json }}
+          lxc_password: "{{ lxc_password | trim }}"
+          gitlab_url: "{{ gitlab_url | trim }}"
+          gitlab_api_token: "{{ gitlab_api_token | trim }}"
+          gitlab_runner_token: "{{ gitlab_runner_token | trim }}"
+          gitlab_project_id: "{{ gitlab_project.json.id }}"
+        dest: "{{ playbook_dir }}/vars/secrets.yml"
+        mode: "0600"
+
+    - name: Write terraform.auto.tfvars
+      ansible.builtin.template:
+        src: templates/terraform.auto.tfvars.j2
+        dest: "{{ playbook_dir }}/../terraform/terraform.auto.tfvars"
+        mode: "0600"
+      vars:
+        proxmox_nodes: "{{ proxmox_nodes_input.split(',') | map('trim') | list }}"
+
+    - name: Done
+      ansible.builtin.debug:
+        msg:
+          - "Credentials saved to ansible/vars/secrets.yml"
+          - "Project ID: {{ gitlab_project.json.id }}"
+          - ""
+          - "Now run:  ansible-playbook ansible/init.yml"
