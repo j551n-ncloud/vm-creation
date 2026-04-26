@@ -99,10 +99,10 @@
 
     # ── Write config files ───────────────────────────────────────────────────
 
-    - name: Write terraform.tfvars
+    - name: Write terraform.auto.tfvars (credentials only — does not touch terraform.tfvars)
       ansible.builtin.template:
-        src: templates/terraform.tfvars.j2
-        dest: "{{ playbook_dir }}/../terraform/terraform.tfvars"
+        src: templates/terraform.auto.tfvars.j2
+        dest: "{{ playbook_dir }}/../terraform/terraform.auto.tfvars"
         mode: "0600"
 
     - name: Write secrets vars
