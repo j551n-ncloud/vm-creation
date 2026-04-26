@@ -16,9 +16,9 @@ variable "proxmox_tls_insecure" {
 }
 
 variable "proxmox_ssh_private_key" {
-  description = "Path to SSH private key for Proxmox nodes"
+  description = "Path to SSH private key for Proxmox nodes (optional, leave empty if using agent or API-only)"
   type        = string
-  default     = "~/.ssh/id_rsa"
+  default     = ""
 }
 
 variable "proxmox_nodes" {

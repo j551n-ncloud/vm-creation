@@ -106,27 +106,39 @@ It then runs in order: Terraform apply → Docker install → Runner register �
 
 ```bash
 ansible-playbook ansible/add-service.yml \
-  -e service_name=my-service \
+  -e service_name=vaultwarden \
   -e service_vmid=202 \
-  -e service_ip=192.168.1.202 \
-  -e service_node=pve01 \
-  -e service_port=8080
+  -e service_ip=192.168.1.202
 ```
 
-This creates the LXC, installs Docker, sets up Vault AppRole, creates the three GitLab submodule repos (`main`, `stage`, `release`), and deploys docker-compose.
+This creates the LXC, installs Docker, creates one GitLab repo with the pipeline pre-configured, and sets up the health-check cronjob.
+
+In GitLab, set these CI/CD variables for the new service project:
+
+| Variable | Example |
+|---|---|
+| `GITOPS_REPO_PATH` | `mygroup/proxmox-gitlab-stack` |
+| `STAGING_LXC_IP` | `192.168.1.202` |
+| `STAGING_LXC_VMID` | `202` |
+| `STAGING_SSH_KEY` | *(SSH private key)* |
+| `PROD_LXC_IP` | `192.168.1.202` |
+| `PROD_LXC_VMID` | `202` |
+| `PROD_SSH_KEY` | *(SSH private key)* |
+| `GITLAB_API_TOKEN` | *(token with api scope)* |
 
 ## Deploy Flow
 
+Each service has **one repo**, branch rules control what runs:
+
 ```
-Push to <service>/main    →  Validation (lint yaml/dockerfile/ansible/terraform)
-Push to <service>/stage   →  Docker build → push to registry
-                          →  SSH into LXC → docker compose pull + up
-                          →  GitLab description line 1: 🚀 STAGING | abc1234 | LXC:201 | deployed 2026-04-25 14:32
-Push tag on <service>/release →  Docker build → push to registry
-                              →  SSH into LXC → docker compose pull + up
-                              →  rsync ./config/ to LXC (with timestamped backup)
-                              →  GitLab description line 1: 🚀 PRODUCTION | v1.2.3 | LXC:201 | deployed 2026-04-25
-                              →  GitLab description line 2: v1.2.3 | released 2026-04-25 | vaultwarden
+Push to main    →  lint (Dockerfile, yaml)
+Push to stage   →  Docker build → push to registry
+                →  SSH into LXC → docker compose pull + up
+                →  🚀 STAGING | abc1234 | LXC:201 | deployed 2026-04-25 14:32
+Push git tag    →  Docker build → push to registry
+                →  SSH into LXC → docker compose pull + up
+                →  rsync ./config/ (optional, with backup)
+                →  🚀 PRODUCTION | v1.2.3 | LXC:201 | deployed 2026-04-25 (manual gate)
 ```
 
 ## GitLab Project Description Format
@@ -161,6 +173,7 @@ The Vault Agent sidecar container renders secrets into `/run/secrets/app.env` at
 
 1. Create a new folder inside `services/` (in the submodule repo)
 2. Copy `services/vaultwarden/` as a starting point
+3. The service repo's `.gitlab-ci.yml` is just 4 lines — it includes everything from the stack repo
 3. Update `docker-compose.yml`, `vault-agent.hcl`, and `secrets/env.ctmpl`
 4. Run `ansible-playbook ansible/add-service.yml -e service_name=<name> ...`
 

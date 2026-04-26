@@ -1,0 +1,6 @@
+# Copy this file into your service repo.
+# Set GITOPS_REPO_PATH in GitLab CI/CD → Variables for this project.
+include:
+  - project: "${GITOPS_REPO_PATH}"
+    ref: main
+    file: gitlab/service-pipeline.yml

@@ -48,6 +48,56 @@
       ansible.builtin.set_fact:
         proxmox_nodes: "{{ proxmox_nodes_input.split(',') | map('trim') | list }}"
 
+    - name: Check if Terraform is installed
+      ansible.builtin.command: terraform version
+      register: terraform_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install Terraform (Linux)
+      when:
+        - terraform_check.rc != 0
+        - ansible_system == "Linux"
+      block:
+        - name: Get latest Terraform version
+          ansible.builtin.uri:
+            url: https://checkpoint-api.hashicorp.com/v1/check/terraform
+            return_content: true
+          register: tf_version_response
+
+        - name: Set Terraform version fact
+          ansible.builtin.set_fact:
+            tf_version: "{{ tf_version_response.json.current_version }}"
+
+        - name: Download Terraform
+          ansible.builtin.get_url:
+            url: "https://releases.hashicorp.com/terraform/{{ tf_version }}/terraform_{{ tf_version }}_linux_amd64.zip"
+            dest: /tmp/terraform.zip
+            mode: "0644"
+
+        - name: Unzip and install Terraform
+          ansible.builtin.unarchive:
+            src: /tmp/terraform.zip
+            dest: /usr/local/bin/
+            remote_src: true
+            mode: "0755"
+
+        - name: Clean up zip
+          ansible.builtin.file:
+            path: /tmp/terraform.zip
+            state: absent
+
+    - name: Install Terraform (macOS via Homebrew)
+      when:
+        - terraform_check.rc != 0
+        - ansible_system == "Darwin"
+      ansible.builtin.command: brew install terraform
+      changed_when: true
+
+    - name: Verify Terraform is available
+      ansible.builtin.command: terraform version
+      changed_when: false
+
     - name: Write terraform.tfvars from input
       ansible.builtin.template:
         src: templates/terraform.tfvars.j2

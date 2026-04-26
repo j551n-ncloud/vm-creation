@@ -16,30 +16,32 @@
     state: present
     update_cache: true
 
-- name: Enable and start GitLab Runner service
+- name: Enable and start GitLab Runner
   ansible.builtin.systemd:
     name: gitlab-runner
     enabled: true
     state: started
 
-- name: Register GitLab Runner
+- name: Check if runner already registered
+  ansible.builtin.stat:
+    path: /etc/gitlab-runner/config.toml
+  register: runner_config
+
+- name: Register runner (GitLab 16+ auth token)
   ansible.builtin.command:
     cmd: >
       gitlab-runner register
       --non-interactive
       --url "{{ gitlab_url }}"
-      --registration-token "{{ gitlab_runner_token }}"
-      --executor "docker"
-      --docker-image "alpine:latest"
+      --token "{{ gitlab_runner_token }}"
+      --executor docker
+      --docker-image alpine:latest
       --description "runner-{{ inventory_hostname }}"
-      --tag-list "docker,gitops"
-      --run-untagged="true"
-      --locked="false"
-  register: runner_register
-  changed_when: runner_register.rc == 0
-  failed_when: runner_register.rc != 0
+      --docker-volumes /var/run/docker.sock:/var/run/docker.sock
+  when: runner_config.stat.size | default(0) < 100
+  changed_when: true
 
-- name: Configure concurrent jobs
+- name: Set concurrent jobs
   ansible.builtin.lineinfile:
     path: /etc/gitlab-runner/config.toml
     regexp: '^concurrent'
