@@ -2,6 +2,8 @@
 
 Fully automated GitOps stack on a Proxmox cluster. Terraform provisions LXC containers, Ansible configures them, GitLab CI/CD handles deployments, and Vault manages secrets.
 
+**Repository:** https://github.com/j551n-ncloud/vm-creation.git
+
 > **Prerequisite:** A running GitLab instance is required. No GitLab VM is created by this stack.
 
 ## Architecture
@@ -74,7 +76,8 @@ GitLab (existing instance)
 ### 1. Clone with submodules
 
 ```bash
-git clone --recurse-submodules <repo-url>
+git clone --recurse-submodules https://github.com/j551n-ncloud/vm-creation.git
+cd vm-creation
 ```
 
 ### 2. Configure Terraform
