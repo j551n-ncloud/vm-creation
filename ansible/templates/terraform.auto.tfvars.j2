@@ -1,6 +1,6 @@
-proxmox_api_url      = "{{ proxmox_api_url }}"
-proxmox_api_token    = "{{ proxmox_api_token }}"
+proxmox_api_url      = "{{ proxmox_api_url | trim }}"
+proxmox_api_token    = "{{ proxmox_api_token | trim }}"
 proxmox_tls_insecure = true
 proxmox_nodes        = {{ proxmox_nodes | to_json }}
-lxc_password         = "{{ lxc_password }}"
-gitlab_url           = "{{ gitlab_url }}"
+lxc_password         = "{{ lxc_password | trim }}"
+gitlab_url           = "{{ gitlab_url | trim }}"

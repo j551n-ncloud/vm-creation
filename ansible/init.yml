@@ -75,9 +75,9 @@
 
     - name: Fetch project ID from GitLab
       ansible.builtin.uri:
-        url: "{{ gitlab_url }}/api/v4/projects/{{ gitlab_project_path | urlencode | replace('/', '%2F') }}"
+        url: "{{ gitlab_url | trim }}/api/v4/projects/{{ gitlab_project_path | trim | urlencode | replace('/', '%2F') }}"
         headers:
-          PRIVATE-TOKEN: "{{ gitlab_api_token }}"
+          PRIVATE-TOKEN: "{{ gitlab_api_token | trim }}"
       register: gitlab_project
 
     - name: Show resolved values
@@ -97,11 +97,11 @@
     - name: Write secrets vars
       ansible.builtin.copy:
         content: |
-          gitlab_url: "{{ gitlab_url }}"
-          gitlab_api_token: "{{ gitlab_api_token }}"
-          gitlab_runner_token: "{{ gitlab_runner_token }}"
+          gitlab_url: "{{ gitlab_url | trim }}"
+          gitlab_api_token: "{{ gitlab_api_token | trim }}"
+          gitlab_runner_token: "{{ gitlab_runner_token | trim }}"
           gitlab_project_id: "{{ gitlab_project.json.id }}"
-          lxc_password: "{{ lxc_password }}"
+          lxc_password: "{{ lxc_password | trim }}"
         dest: "{{ playbook_dir }}/vars/secrets.yml"
         mode: "0600"
 
