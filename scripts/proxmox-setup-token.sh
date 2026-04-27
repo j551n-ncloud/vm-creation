@@ -58,7 +58,7 @@ else
 fi
 
 # Download LXC template if not already present
-TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
+TEMPLATE="debian-12-standard_12.12-1_amd64.tar.zst"
 if ! pveam list local 2>/dev/null | grep -q "${TEMPLATE}"; then
   echo ""
   echo "Downloading LXC template: ${TEMPLATE}"

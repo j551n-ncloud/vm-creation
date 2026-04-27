@@ -36,7 +36,7 @@ variable "lxc_password" {
 variable "lxc_template" {
   description = "LXC template path in Proxmox (run scripts/proxmox-setup-token.sh first to download it)"
   type        = string
-  default     = "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
+  default     = "local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst"
 }
 
 variable "lxc_storage" {
