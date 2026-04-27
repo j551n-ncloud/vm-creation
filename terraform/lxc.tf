@@ -1,7 +1,8 @@
 resource "proxmox_virtual_environment_container" "services" {
-  for_each  = var.services
-  node_name = each.value.node
-  vm_id     = each.value.vmid
+  for_each     = var.services
+  node_name    = each.value.node
+  vm_id        = each.value.vmid
+  unprivileged = true
 
   description = "Service LXC: ${each.key}"
   tags        = ["gitops", each.key]
@@ -53,9 +54,10 @@ resource "proxmox_virtual_environment_container" "services" {
 }
 
 resource "proxmox_virtual_environment_container" "runners" {
-  for_each  = var.runner_lxcs
-  node_name = each.key
-  vm_id     = each.value.vmid
+  for_each     = var.runner_lxcs
+  node_name    = each.key
+  vm_id        = each.value.vmid
+  unprivileged = true
 
   description = "GitLab Runner: ${each.key}"
   tags        = ["gitops", "runner"]
