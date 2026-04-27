@@ -33,6 +33,12 @@ variable "lxc_password" {
   sensitive   = true
 }
 
+variable "ssh_public_key_file" {
+  description = "Path to SSH public key to inject into LXC containers (e.g. ~/.ssh/id_rsa.pub)"
+  type        = string
+  default     = "~/.ssh/id_rsa.pub"
+}
+
 variable "lxc_template" {
   description = "LXC template path in Proxmox (run scripts/proxmox-setup-token.sh first to download it)"
   type        = string

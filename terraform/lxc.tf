@@ -19,6 +19,7 @@ resource "proxmox_virtual_environment_container" "services" {
 
     user_account {
       password = var.lxc_password
+      keys     = [trimspace(file(pathexpand(var.ssh_public_key_file)))]
     }
   }
 
@@ -74,6 +75,7 @@ resource "proxmox_virtual_environment_container" "runners" {
 
     user_account {
       password = var.lxc_password
+      keys     = [trimspace(file(pathexpand(var.ssh_public_key_file)))]
     }
   }
 
