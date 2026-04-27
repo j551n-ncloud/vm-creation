@@ -24,7 +24,7 @@
       confirm: true
 
     - name: ssh_public_key_file
-      prompt: "SSH public key file to inject into LXCs"
+      prompt: "Path to SSH public key file (will be read once)"
       private: false
       default: "~/.ssh/id_rsa.pub"
 
@@ -66,7 +66,7 @@
           proxmox_api_token: "{{ proxmox_api_token | trim }}"
           proxmox_nodes: {{ proxmox_nodes_input.split(',') | map('trim') | list | to_json }}
           lxc_password: "{{ lxc_password | trim }}"
-          ssh_public_key_file: "{{ ssh_public_key_file | trim }}"
+          ssh_public_key: "{{ lookup('file', ssh_public_key_file | expanduser) | trim }}"
           gitlab_url: "{{ gitlab_url | trim }}"
           gitlab_api_token: "{{ gitlab_api_token | trim }}"
           gitlab_runner_token: "{{ gitlab_runner_token | trim }}"

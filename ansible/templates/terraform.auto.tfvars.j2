@@ -3,5 +3,5 @@ proxmox_api_token    = "{{ proxmox_api_token | trim }}"
 proxmox_tls_insecure = true
 proxmox_nodes        = {{ proxmox_nodes | to_json }}
 lxc_password         = "{{ lxc_password | trim }}"
-ssh_public_key_file  = "{{ ssh_public_key_file | trim }}"
+ssh_public_key       = "{{ ssh_public_key | trim }}"
 gitlab_url           = "{{ gitlab_url | trim }}"
