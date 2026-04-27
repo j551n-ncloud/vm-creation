@@ -2,7 +2,7 @@ output "service_lxc_ips" {
   description = "IP addresses of service LXCs"
   value = {
     for k, v in proxmox_virtual_environment_container.services :
-    k => v.initialization[0].ip_config[0].ipv4[0].address
+    k => split("/", v.initialization[0].ip_config[0].ipv4[0].address)[0]
   }
 }
 
@@ -10,7 +10,7 @@ output "runner_lxc_ips" {
   description = "IP addresses of runner LXCs"
   value = {
     for k, v in proxmox_virtual_environment_container.runners :
-    k => v.initialization[0].ip_config[0].ipv4[0].address
+    k => split("/", v.initialization[0].ip_config[0].ipv4[0].address)[0]
   }
 }
 
