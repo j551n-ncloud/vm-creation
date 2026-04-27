@@ -72,10 +72,26 @@
         chdir: "{{ playbook_dir }}/../terraform"
       changed_when: true
 
+    - name: Write Ansible inventory from Terraform outputs
+      ansible.builtin.shell:
+        cmd: terraform output -raw ansible_inventory
+        chdir: "{{ playbook_dir }}/../terraform"
+      register: tf_inventory
+      changed_when: false
+
+    - name: Save inventory/hosts
+      ansible.builtin.copy:
+        content: "{{ tf_inventory.stdout }}"
+        dest: "{{ playbook_dir }}/inventory/hosts"
+        mode: "0644"
+
     - name: Wait for LXCs to boot
       ansible.builtin.pause:
         seconds: 30
         prompt: "Waiting 30s for containers..."
+
+    - name: Refresh inventory
+      ansible.builtin.meta: refresh_inventory
 
 - name: Install Docker on service LXCs
   import_playbook: docker-install.yml
