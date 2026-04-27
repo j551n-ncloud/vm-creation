@@ -47,7 +47,7 @@
   tasks:
     - name: Validate Proxmox token format
       ansible.builtin.assert:
-        that: proxmox_api_token | trim | regex_search('^[^@]+@[^!]+![^=]+=.+$')
+        that: proxmox_api_token | trim | regex_search('^[^@]+@[^!]+![^=]+=.+$') is not none
         fail_msg: |
           Invalid format. Expected: USER@REALM!TOKENID=UUID
           Example:   root@pam!terraform=ce2958a4-313c-402c-9dfc-3b3d7838afc7
