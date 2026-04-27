@@ -33,10 +33,10 @@ variable "lxc_password" {
   sensitive   = true
 }
 
-variable "lxc_template" {
-  description = "LXC template to use (must exist in Proxmox)"
+variable "lxc_template_url" {
+  description = "URL to download the LXC template from (Proxmox will fetch it to local:vztmpl)"
   type        = string
-  default     = "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
+  default     = "http://download.proxmox.com/images/system/debian-12-standard_12.7-1_amd64.tar.zst"
 }
 
 variable "lxc_storage" {
