@@ -41,7 +41,7 @@ resource "proxmox_virtual_environment_container" "services" {
   }
 
   operating_system {
-    template_file_id = var.lxc_template
+    template_file_id = proxmox_virtual_environment_download_file.lxc_template[each.value.node].id
     type             = "debian"
   }
 
@@ -96,7 +96,7 @@ resource "proxmox_virtual_environment_container" "runners" {
   }
 
   operating_system {
-    template_file_id = var.lxc_template
+    template_file_id = proxmox_virtual_environment_download_file.lxc_template[each.key].id
     type             = "debian"
   }
 
