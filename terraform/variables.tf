@@ -33,10 +33,9 @@ variable "lxc_password" {
   sensitive   = true
 }
 
-variable "ssh_public_key_file" {
-  description = "Path to SSH public key to inject into LXC containers (e.g. ~/.ssh/id_rsa.pub)"
+variable "ssh_public_key" {
+  description = "SSH public key content to inject into LXC containers"
   type        = string
-  default     = "~/.ssh/id_rsa.pub"
 }
 
 variable "lxc_template" {

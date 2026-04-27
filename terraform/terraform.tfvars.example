@@ -5,7 +5,7 @@ proxmox_ssh_private_key = "~/.ssh/id_rsa"
 
 proxmox_nodes       = ["pve01", "pve02"]
 lxc_password        = "changeme"
-ssh_public_key_file = "~/.ssh/id_rsa.pub"
+ssh_public_key      = "ssh-ed25519 AAAA... user@host"
 lxc_template   = "local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst"
 lxc_storage    = "local-lvm"
 network_bridge = "vmbr0"
