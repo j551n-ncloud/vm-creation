@@ -72,8 +72,45 @@
         chdir: "{{ playbook_dir }}/../terraform"
       changed_when: true
 
-    - name: Write Ansible inventory from Terraform outputs
-      ansible.builtin.shell:
+    - name: Read Terraform outputs
+      ansible.builtin.command:
+        cmd: terraform output -json
+        chdir: "{{ playbook_dir }}/../terraform"
+      register: tf_outputs_raw
+      changed_when: false
+
+    - name: Parse Terraform outputs
+      ansible.builtin.set_fact:
+        tf: "{{ tf_outputs_raw.stdout | from_json }}"
+
+    - name: Add service LXCs to inventory
+      ansible.builtin.add_host:
+        name: "{{ item.key }}"
+        groups: services
+        ansible_host: "{{ item.value }}"
+        ansible_user: root
+        ansible_python_interpreter: /usr/bin/python3
+      loop: "{{ tf.service_lxc_ips.value | dict2items }}"
+
+    - name: Add vault LXC to vault group
+      ansible.builtin.add_host:
+        name: vault
+        groups: vault
+        ansible_host: "{{ tf.vault_ip.value }}"
+        ansible_user: root
+        ansible_python_interpreter: /usr/bin/python3
+
+    - name: Add runner LXCs to inventory
+      ansible.builtin.add_host:
+        name: "runner-{{ item.key }}"
+        groups: runners
+        ansible_host: "{{ item.value }}"
+        ansible_user: root
+        ansible_python_interpreter: /usr/bin/python3
+      loop: "{{ tf.runner_lxc_ips.value | dict2items }}"
+
+    - name: Write inventory/hosts for direct playbook re-runs
+      ansible.builtin.command:
         cmd: terraform output -raw ansible_inventory
         chdir: "{{ playbook_dir }}/../terraform"
       register: tf_inventory
@@ -89,9 +126,6 @@
       ansible.builtin.pause:
         seconds: 30
         prompt: "Waiting 30s for containers..."
-
-    - name: Refresh inventory
-      ansible.builtin.meta: refresh_inventory
 
 - name: Install Docker on service LXCs
   import_playbook: docker-install.yml
