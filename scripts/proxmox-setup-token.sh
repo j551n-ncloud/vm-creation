@@ -56,3 +56,16 @@ else
   echo ""
   echo "  proxmox_api_token = \"${TERRAFORM_USER}!${TOKEN_NAME}=${TOKEN_SECRET}\""
 fi
+
+# Download LXC template if not already present
+TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
+if ! pveam list local 2>/dev/null | grep -q "${TEMPLATE}"; then
+  echo ""
+  echo "Downloading LXC template: ${TEMPLATE}"
+  pveam update
+  pveam download local "${TEMPLATE}"
+  echo "Template downloaded."
+else
+  echo ""
+  echo "LXC template already present: ${TEMPLATE}"
+fi
