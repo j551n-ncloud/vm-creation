@@ -1,0 +1,47 @@
+% !TEX root = Projektdokumentation.tex
+\section{Anhang}
+\subsection{Detaillierte Zeitplanung}
+\label{app:Zeitplanung}
+
+\tabelleAnhang{ZeitplanungKomplett}
+
+\subsection{Testprotokoll (Auszug)}
+\label{app:IssueLog}
+\tabelleAnhang{IssueLog}
+
+\input{Anhang/AnhangLastenheft.tex}
+
+\input{Anhang/AnhangAdminDoku.tex}
+\clearpage
+
+\subsection{Aktivitätsdiagramm ECA-E}
+\begin{figure}[htb]
+    \centering
+    \includegraphicsKeepAspectRatio{Bilder/eca-e-flowchart.png}{0.9}
+    \label{Aktivitaetsdiagramm}
+    \caption{Aktivitätsdiagramm ECA-E}
+\end{figure}
+\clearpage
+
+\subsection{Workflow-Vergleich}
+\label{WorkflowVergleich}
+
+\begin{figure}[htb]
+    \includegraphicsKeepAspectRatio{ECR-Workflow-old.png}{0.8}
+    \caption{Workflow vor der Umstrukturierung}
+    \label{WorkflowVergleich1}
+\end{figure}
+
+\begin{figure}[htb]
+    \includegraphicsKeepAspectRatio{ECR-Workflow-new.png}{0.8}
+    \caption{Workflow nach der Umstrukturierung}
+    \label{WorkflowVergleich2}
+\end{figure}
+
+\subsection{emptyRole Methode (Auszug)}
+\label{EmptyRoleMethode}
+\lstinputlisting[language=java, caption={Klasse: EmptyRole}]{Listings/TeamHelper.java}
+
+
+
+\clearpage

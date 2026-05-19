@@ -1,0 +1,23 @@
+\subsection{Lastenheft (Auszug)}
+\label{app:Lastenheft}
+Es folgt ein Auszug aus dem Lastenheft mit Fokus auf die Anforderungen:
+
+Engineering Change Request:
+\begin{itemize}
+	\item Add new roles and tasks to workflow and custom pages.
+	\item ‘Review tasks’ page will be replaced by the ‘Set up participants” page. The link to Review tasks should be visible until legacy workflows are completed.
+	\item Non-Engineering approval process for both EMEA and NA requires 1 additional approvals of Production Manager. Production Manager is a new role for Production dept.
+\end{itemize}
+
+Engineering Change Notice:
+\begin{itemize}
+	\item Addition of the ECA to existing ECN workflow template (RCW CMII ECN workflow). Requirement of 2 ECA per ECR. The first ECA would constitute all implementation tasks for engineering team and the second ECA for non -engineering teams which should begin once engineering team is completed with all changes on the first ECA.
+	\item Affected and Resulting objects to be added by engineering ECA assignees.
+	\item Planning and scoping of the change would be done in the ECN and the final implementation or execution tasks to begin at the ECA.
+	\item Modify the workflow and custom pages as needed in the existing workflow such that all execution tasks are moved to the ECA. (See Annex1 - markups for custom pages and Annex 2 at the end of this document.)
+	\item Develop a mechanism to lock the objects while they are being reviewed at the Verify Engineering Implementation Task. This could be potentially done by introducing an intermediate state “Under review”. If during the review process, the reviewer determines that some rework needs to be done, the objects change to “Rework” state and return to the engineer in an unlocked state. If during review, all objects are OK, objects change to the final intended target set as defined in the ECA.
+	\item If atleast one rework check box has been selected during the ‘Verify Implementation task’, Routing option should be defaulted to ‘Incomplete’ to avoid user error.
+	\item Define the intended final lifecycle state of each resulting object in the ECA. The pre-set target lifecycle state could be one of the three – Pre-Production, Released or Obsolete.
+	\item Add new implementation tasks and notification.
+	\item Rename existing implementation tasks and notification.
+\end{itemize}
