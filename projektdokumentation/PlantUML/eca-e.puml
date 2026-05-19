@@ -1,0 +1,30 @@
+@startuml
+'https://plantuml.com/activity-diagram-beta
+skinparam conditionStyle diamond
+|System|
+start
+:Copy objects that will be affected by this change from ECR;
+:Get all radio button attributes from ECR;
+:Get product line attribute from ECR;
+:Load users from product line team template;
+:Remove users that are not needed;
+|Change Admin|
+:Select users;
+
+repeat
+    |Engineer|
+    :Complete implementation task;
+
+    |System|
+    :Lock affected objects;
+
+    |Change Admin|
+    :Review implementation task;
+
+    |System|
+    backward :Release affected objects;
+repeat while (Rework Required)
+stop
+
+
+@enduml

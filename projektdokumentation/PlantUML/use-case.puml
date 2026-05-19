@@ -1,0 +1,38 @@
+@startuml
+'https://plantuml.com/use-case-diagram
+left to right direction
+:Windchill Admin: as Admin
+:Genehmiger:
+:User:
+:System:
+(Hinzufügen neuer Abteilungen zum Prozess) as (AbteilungHinzufügen)
+package Erweiterung-Change-Management {
+    package ECR {
+        :User: -> (ECR erstellen)
+        :Genehmiger: -> (ECR genehmigen)
+    }
+    package ECN {
+        :System: -> (ECN erstellen)
+    }
+}
+
+
+(Change Objekte sperren)
+(ECA-E)
+(ECA-NE)
+
+(ECR) <.. (ECN) : <<extends>>
+(ECN) .> (ECA-E) : <<include>>
+(ECN) ..> (ECA-NE) : <<include>>
+(ECA-E) .> (Change Objekte sperren) : <<include>>
+
+note as N1
+Extension: {Genehmigt}
+end note
+N1 . (ECN)
+
+
+Admin --> (AbteilungHinzufügen)
+User --> (ECR)
+
+@enduml

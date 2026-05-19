@@ -1,0 +1,20 @@
+\subsection{Admin-Dokumentation (Auszug)}
+\label{app:AdminDokumentation}
+Ausschnitt aus der Admin-Dokumentation:
+
+\subsubsection*{Hide Radio Button Selections per Org}
+To hide a radio button selection for an org we need the two following files located on the server:
+\begin{itemize}
+    \item <Windchill>/codebase/ext/xylem/acl/attributeacl.xml
+    \item <Windchill>/codebase/ext/xylem/acl/aclvalidation.xml
+\end{itemize}
+Use attributeacl.xml to find the internal name of the attribute by looking for the display name.
+
+\textit{For example we want to hide the Motor Design attribute for organization WT. So we need to look for “Motor Design” in the attributeacl.xml. The internal attribute name is MOTORDESIGN\_VALIDATION.}
+
+Use aclvalidation.xml to change the visibility of the attribute by adding the Organization name to the VALIDATION list.
+
+\textit{For the Motor Design attribute we need to find the MOTORDESIGN\_VALIDATION entry and add WT to the value-list}
+
+If a hidden attribute should be visible just remove the organization from the list.
+
