@@ -22,3 +22,9 @@ _minted-*
 
 # VS Code
 .vscode/
+
+# IDE files
+.idea/
+.project
+.settings/
+.texlipse
